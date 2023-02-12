@@ -29,7 +29,7 @@ unique(wo$location_id)
 #Read in Sensor Files ----
 
 #list the files available in the fault code folder
-sensor_files <- list.files("class_data")
+sensor_files <- list.files("class_data", pattern = "*.csv")
 
 sensor_files[1]
 read.csv(paste0("class_data/", sensor_files[2]), header = FALSE)
@@ -90,7 +90,7 @@ ggplot(data = percents, aes(x=Var1, y=need_work)) +
 #Read in Gearbox Bearing Data ----
 
 #list the files available in the fault code folder
-bearing_files <- list.files("Gearbox Bearing Temperature")
+bearing_files <- list.files("Gearbox Bearing Temperature", pattern = "*.csv")
 
 bearing_files[1]
 read.csv(paste0("Gearbox Bearing Temperature/", bearing_files[2]), header = FALSE)

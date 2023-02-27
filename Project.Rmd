@@ -323,7 +323,7 @@ write.csv(full_joined, "Data\\final_data.csv", row.names=FALSE)
 
 ## Matrix
 
-```{r matrix, echo=FALSE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
+```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in aggregated multidimensional data set
 db <- read.csv("Data/final_data.csv")
 

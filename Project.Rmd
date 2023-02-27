@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Data Processing
 
-```{r Libraries, include=FALSE}
+```{r Libraries}
 
 # libraries 
 library(tidyverse)
@@ -22,7 +22,7 @@ library(dplyr)
 library(ggcorrplot)
 
 ```
-All r code and rmarkdown will be in the root directory with all sensory data will are to be in the directory Data/ and extracted into their respective sub directories as stated:\
+All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
 
 **Work order**
 

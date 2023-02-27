@@ -347,7 +347,7 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 ```
 
 ## Multivariate
-```{r multivariate, figures-side, fig.show="hold", out.width="50%", fig.align="center"}
+```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
 
 #Replace all NA values in numeric columns with average column value.
 db$mean_bear_temp[is.na(db$mean_bear_temp)] <- mean(db$mean_bear_temp,na.rm=TRUE)
@@ -373,10 +373,11 @@ ggplot(db,
            y=mean_ims, 
            group=FaultOccurred, 
            color=FaultOccurred))+
-  ggtitle("Mean Active Power Vs Mean Gearbox IMS Bearing Temperature")+
+  ggtitle("Mean Gearbox Oil Temperature Vs Mean Gearbox IMS Bearing Temperature")+
   xlab("Mean Gearbox Oil Temperature")+
   ylab("Mean Gearbox IMS Bearing temperature")+
-  geom_point(outlier.shape = NA)
+  coord_cartesian(xlim = c(20,75), ylim = c(20,75))+
+  geom_point()
 
 ggplot(db,
        aes(x=mean_windspeed,

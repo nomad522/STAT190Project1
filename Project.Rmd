@@ -250,7 +250,9 @@ active$V2 <- ymd_hms(active$V2)
 #renaming column headers
 names(active) <- c("location_id", "DateTime", "Date", "power", "Active power")
 # sorting data by turbine, then the DateTime.
-active <- active %>% arrange(Turbine, DateTime) %>% distinct()
+active <- active %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+active$round_date <- lubridate::round_date(active$DateTime, "15 minutes")
 #adding mean power of the 15 minute intervals and dropping columns
 active <-active %>% group_by(location_id, round_date) %>% summarise(mean_power = mean(power), .groups = 'drop') %>% as.data.frame()
 

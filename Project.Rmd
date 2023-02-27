@@ -4,7 +4,7 @@ author: "Chris Cavan, Marshall Ndhlovu, Noah Maddio, Nathan Gottwals"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -316,12 +316,12 @@ fully_joined = fault %>%
   full_join(ambient, by=c("location_id"="location_id","round_date"="round_date")) %>%
   full_join(wind, by=c("location_id"="location_id","round_date"="round_date"))
 
-write.csv(DataFrame Name, "Data\\final_data.csv", row.names=FALSE)
+write.csv(full_joined, "Data\\final_data.csv", row.names=FALSE)
 
 ```
 ###Matrix
 
-```{r multivariate}
+```{r matrix}
 #Read in aggregated multidimensional data set
 db <- read.csv("Data/final_data.csv")
 
@@ -350,7 +350,7 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 ```
 
 ###Multivariate
-```{r multivariate}
+```{r multivariate, figures-side, fig.show="hold", out.width="50%", fig.align="center"}
 
 #Replace all NA values in numeric columns with average column value.
 db$mean_bear_temp[is.na(db$mean_bear_temp)] <- mean(db$mean_bear_temp,na.rm=TRUE)
@@ -376,7 +376,7 @@ ggplot(db,
            y=mean_ims, 
            group=FaultOccurred, 
            color=FaultOccurred))+
-  ggtitle("Mean Active Power Vs Mean RPM")+
+  ggtitle("Mean Active Power Vs Mean Gearbox IMS Bearing Temperature")+
   xlab("Mean Gearbox Oil Temperature")+
   ylab("Mean Gearbox IMS Bearing temperature")+
   geom_point()
@@ -389,6 +389,6 @@ ggplot(db,
   ggtitle("Mean Wind Speed Vs Mean Hydraulic Pressure")+
   xlab("Mean Wind Speed")+
   ylab("Mean Hydraulic Pressure")+
-  geom_point()code
+  geom_point()
 
 ```

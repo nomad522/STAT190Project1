@@ -20,6 +20,7 @@ library(tidyverse)
 library(lubridate)
 library(dplyr)
 library(ggcorrplot)
+library(gridExtra)
 
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
@@ -332,9 +333,21 @@ db <- read.csv("Data/final_data.csv")
 #Convert date time from char to date time
 db$DateTime <- ymd_hms(db$DateTime)
 db$round_date <- ymd_hms(db$round_date)
+
+# delete all duplicated rows
+db <- db[!duplicated(db[,8:9]),]
+
+#Order based on Turbine and date
+db <- db %>% arrange(location_id, round_date)
+
 # binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
 db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
 as.factor(db$FaultOccurred)
+
+db <- subset(db, select = -c(DateTime, Date, FaultCode, StatusCode, Description, Type))
+View(db)
+
+
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
@@ -359,6 +372,41 @@ db$mean_rpm[is.na(db$mean_rpm)] <- mean(db$mean_rpm,na.rm=TRUE)
 db$mean_oil_temp[is.na(db$mean_oil_temp)] <- mean(db$mean_oil_temp,na.rm=TRUE)
 db$mean_ims[is.na(db$mean_ims)] <- mean(db$mean_ims,na.rm=TRUE)
 db$mean_power[is.na(db$mean_power)] <- mean(db$mean_power,na.rm=TRUE)
+
+names(db) <- c("Turbine", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Fault_Occurred")
+
+### Create graphs for Math Video ----
+# Boxplots
+p1 <- ggplot(db, aes(x=Fault_Occurred, y=Bearing_Temp)) + 
+  geom_boxplot()
+p1
+
+p2 <- ggplot(db, aes(x=Fault_Occurred, y=Windspeed)) + 
+  geom_boxplot()
+p2
+
+p3 <- ggplot(db, aes(x=Fault_Occurred, y=Hydraulic_Pressure)) + 
+  geom_boxplot()
+p3
+
+p4 <- ggplot(db, aes(x=Fault_Occurred, y=Generator_RPM)) + 
+  geom_boxplot()
+p4
+
+p5 <- ggplot(db, aes(x=Fault_Occurred, y=Oil_Temp)) + 
+  geom_boxplot()
+p5
+
+p6 <- ggplot(db, aes(x=Fault_Occurred, y=Gearbox_IMS)) + 
+  geom_boxplot()
+p6
+
+p7 <- ggplot(db, aes(x=Fault_Occurred, y=Active_Power)) + 
+  geom_boxplot()
+p7
+
+#Print all plots in 4 x 2 grid
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol=2)
 
 ggplot(db,
        aes(x=mean_rpm,

@@ -443,14 +443,18 @@ ggplot(db,
 
 # Specifics
 # 1. Show code
-# 2. 
+# 2. Show graphs
+#   Research questions: 
 # 3. Descriptive: Use a logistic regression model with log link for binary Y variable
 # X Variables: all numeric sensor reading data, categorical X variables?
 # Y Variable: Binary Fault_Occurred Y variable
 # Predictive: K-Means clustering due to large data size, k = 3?
 
 # Issues Encountered
-# 1. 
+# 1. Runtime issues due to size of datasets
+# 2. Visualizations can be misleading
+# 3. How to join the work order data to the multivariate data set?
 
 # Plans for next week
-# 1. 
+# 1. Create better visualizations to assess variable relationships
+# 2. Begin selecting variables for models and creating regression models

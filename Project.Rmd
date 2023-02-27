@@ -440,3 +440,17 @@ ggplot(db,
   geom_point()
 
 ```
+
+# Specifics
+# 1. Show code
+# 2. 
+# 3. Descriptive: Use a logistic regression model with log link for binary Y variable
+# X Variables: all numeric sensor reading data, categorical X variables?
+# Y Variable: Binary Fault_Occurred Y variable
+# Predictive: K-Means clustering due to large data size, k = 3?
+
+# Issues Encountered
+# 1. 
+
+# Plans for next week
+# 1. 

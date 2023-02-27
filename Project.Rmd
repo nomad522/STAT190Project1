@@ -444,7 +444,8 @@ ggplot(db,
 # Specifics
 # 1. Show code
 # 2. Show graphs
-#   Research questions: 
+#   Research questions: What is the optimal temperature of components to prevent fault and maximize energy produced?
+#                       Which variables are related to our temperature vcariables?
 # 3. Descriptive: Use a logistic regression model with log link for binary Y variable
 # X Variables: all numeric sensor reading data, categorical X variables?
 # Y Variable: Binary Fault_Occurred Y variable

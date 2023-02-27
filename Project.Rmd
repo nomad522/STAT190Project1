@@ -61,7 +61,8 @@ The data for the supplied sensor metrics are read in and the dates and time are 
 then aggregated by the average in 15 minute intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
 
 
-```{r data_processing}
+```{r data_processing, eval=FALSE}
+#### Will not run unless you remove eval=False ^
 
 #####workorder------------
 wo = read.csv("Data/work order scrubbed.csv")
@@ -319,14 +320,12 @@ fully_joined = fault %>%
 write.csv(full_joined, "Data\\final_data.csv", row.names=FALSE)
 
 ```
-###Matrix
 
-```{r matrix}
+## Matrix
+
+```{r matrix, echo=FALSE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in aggregated multidimensional data set
 db <- read.csv("Data/final_data.csv")
-
-
-#Data preparation----
 
 #Convert date time from char to date time
 db$DateTime <- ymd_hms(db$DateTime)
@@ -334,8 +333,6 @@ db$round_date <- ymd_hms(db$round_date)
 # binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
 db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
 as.factor(db$FaultOccurred)
-
-str(db)
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
@@ -349,7 +346,7 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 
 ```
 
-###Multivariate
+## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="50%", fig.align="center"}
 
 #Replace all NA values in numeric columns with average column value.

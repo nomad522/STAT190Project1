@@ -1,0 +1,390 @@
+---
+title: "Project 1"
+author: "Chris Cavan, Marshall Ndhlovu, Noah Maddio, Nathan Gottwals"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Processing
+
+```{r Libraries, include=FALSE}
+
+# libraries 
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggcorrplot)
+
+```
+All r code and rmarkdown will be in the root directory with all sensory data will are to be in the directory Data/ and extracted into their respective sub directories as stated:\
+
+**Work order**
+
++ Data/work order scrubbed.csv
+  
+**Active Power**
+
++ Data/Active Power
+  
+**Gearbox HS Bearing Temperature**
+  
++ Data/Gearbox Bearing Temperature
+  
+**Gearbox IMS Bearing**
+  
++ Data/Gearbox IMS Bearing
+  
+**Gearbox Oil Temperature**
+
++ Gearbox Oil Temperature
+  
+**Generator RPM**
+
++ Data/Gearbox RPM
+  
+**Hydraulic Pressure**
+
++ Data/Hydraulic Pressure
+  
+**Windspeed**
+
++ Data/Windspeed
+
+#Reading in the data and cleaning
+The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
+then aggregated by the average in 15 minute intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
+
+
+```{r data_processing}
+
+#####workorder------------
+wo = read.csv("Data/work order scrubbed.csv")
+# work order exploration and data cleaning
+# cause_code all null
+table(wo$cause_code)
+# start date is character
+#convert start and finish columns to date objects
+wo$wo_start_date = ymd_hms(wo$wo_start_date)
+# end date is also character
+#convert start and finish columns to date objects
+wo$wo_finish_date = ymd_hms(wo$wo_finish_date)
+# cause_code all null ***********need to fix
+table(wo$cause_code)
+
+
+
+#### fault code---------------- 
+fault_files = list.files("Data/Fault Codes", pattern="*.csv")
+fault_list = list()
+for (i in 1:length(fault_files)) {
+  if (file.size(paste0("Data/Fault Codes/", fault_files[i])) >1){
+    fault_list = c(fault_list, fault_files[i])
+  }
+}
+fault = read.csv(paste0("Data/Fault Codes/", fault_list[1]), header = FALSE)
+for (i in 2:length(fault_list)){
+  new = read.csv(paste0("Data/Fault Codes/", fault_list[i]), header = FALSE)
+  fault = rbind(fault, new)
+}
+#convert Datetime from char to date
+fault$V2 <- ymd_hms(fault$V2)
+#renaming column headers
+names(fault) <- c("location_id", "DateTime", "Date", "FaultCode", "StatusCode", "Description", "Type")
+# sorting data by turbine, then the DateTime.
+fault <- fault %>% arrange(location_id, DateTime) %>% distinct()
+
+
+
+#### Gearbox HS Bearing Temperature---------------- 
+bearing_files = list.files("Data/Gearbox Bearing Temperature", pattern="*.csv")
+bearing_list = list()
+for (i in 1:length(bearing_files)) {
+  if (file.size(paste0("Data/Gearbox Bearing Temperature/", bearing_files[i])) >1){
+    bearing_list = c(bearing_list, bearing_files[i])
+  }
+}
+bearing = read.csv(paste0("Data/Gearbox Bearing Temperature/", bearing_list[1]), header = FALSE)
+for (i in 2:length(bearing_list)){
+  new = read.csv(paste0("Data/Gearbox Bearing Temperature/", bearing_list[i]), header = FALSE)
+  bearing = rbind(bearing, new)
+}
+#convert Datetime from char to date
+bearing$V2 <- ymd_hms(bearing$V2)
+#renaming column headers
+names(bearing) <- c("location_id", "DateTime", "Date", "Temperature", "Bearing DE")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+bearing <- bearing %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+bearing$round_date <- lubridate::round_date(bearing$DateTime, "15 minutes")
+#adding mean of the 15 minute intervals and droping columns
+bearing <- bearing %>% group_by(location_id, round_date) %>% summarise(mean_temp = mean(Temperature), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### Gearbox IMS Bearing Temperature---------------- 
+ims_files = list.files("Data/Gearbox IMS Bearing", pattern="*.csv")
+ims_list = list()
+for (i in 1:length(ims_files)) {
+  if (file.size(paste0("Data/Gearbox IMS Bearing/", ims_files[i])) >1){
+    ims_list = c(ims_list, ims_files[i])
+  }
+}
+ims = read.csv(paste0("Data/Gearbox IMS Bearing/", ims_list[1]), header = FALSE)
+for (i in 2:length(ims_list)){
+  new = read.csv(paste0("Data/Gearbox IMS Bearing/", ims_list[i]), header = FALSE)
+  ims = rbind(ims, new)
+}
+#convert Datetime from char to date
+ims$V2 <- ymd_hms(ims$V2)
+#renaming column headers
+names(ims) <- c("location_id", "DateTime", "Date", "Temperature", "ims")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+ims <- ims %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+ims$round_date <- lubridate::round_date(ims$DateTime, "15 minutes")
+#adding mean ims bearing temp of the 15 minute intervals and dropping columns
+ims <- ims %>% group_by(location_id, round_date) %>% summarise(mean_ims = mean(Temperature), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### Gearbox Oil Temperature---------------- 
+oil_files = list.files("Data/Gearbox Oil Temperature", pattern="*.csv")
+oil_list = list()
+for (i in 1:length(oil_files)) {
+  if (file.size(paste0("Data/Gearbox Oil Temperature/", oil_files[i])) >1){
+    oil_list = c(oil_list, oil_files[i])
+  }
+}
+oil = read.csv(paste0("Data/Gearbox Oil Temperature/", oil_list[1]), header = FALSE)
+for (i in 2:length(oil_list)){
+  new = read.csv(paste0("Data/Gearbox Oil Temperature/", oil_list[i]), header = FALSE)
+  oil = rbind(oil, new)
+}
+#convert Datetime from char to date
+oil$V2 <- ymd_hms(oil$V2)
+#renaming column headers
+names(oil) <- c("location_id", "DateTime", "Date", "Temperature", "oil")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+oil <- oil %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+oil$round_date <- lubridate::round_date(oil$DateTime, "15 minutes")
+#adding mean oil temp of the 15 minute intervals and dropping columns
+oil <- oil %>% group_by(location_id, round_date) %>% summarise(mean_oil = mean(Temperature), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### Generator RPM---------------- 
+rpm_files = list.files("Data/Generator RPM", pattern="*.csv")
+rpm_list = list()
+for (i in 1:length(rpm_files)) {
+  if (file.size(paste0("Data/Generator RPM/", rpm_files[i])) >1){
+    rpm_list = c(rpm_list, rpm_files[i])
+  }
+}
+rpm = read.csv(paste0("Data/Generator RPM/", rpm_list[1]), header = FALSE)
+for (i in 2:length(rpm_list)){
+  new = read.csv(paste0("Data/Generator RPM/", rpm_list[i]), header = FALSE)
+  rpm = rbind(rpm, new)
+}
+#convert Datetime from char to date
+rpm$V2 <- ymd_hms(rpm$V2)
+#renaming column headers
+names(rpm) <- c("location_id", "DateTime", "Date", "RPM", "Generator rpm")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+rpm <- rpm %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+rpm$round_date <- lubridate::round_date(rpm$DateTime, "15 minutes")
+#adding mean rpm of the 15 minute intervals and dropping columns
+rpm <- rpm %>% group_by(location_id, round_date) %>% summarise(mean_rpm = mean(RPM), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### Hydraulic Pressure---------------- 
+hydraulic_files = list.files("Data/Hydraulic Pressure", pattern="*.csv")
+hydraulic_list = list()
+for (i in 1:length(rpm_files)) {
+  if (file.size(paste0("Data/Hydraulic Pressure/", hydraulic_files[i])) >1){
+    hydraulic_list = c(hydraulic_list, hydraulic_files[i])
+  }
+}
+hydraulic = read.csv(paste0("Data/Hydraulic Pressure/", hydraulic_list[1]), header = FALSE)
+for (i in 2:length(hydraulic_list)){
+  new = read.csv(paste0("Data/Hydraulic Pressure/", hydraulic_list[i]), header = FALSE)
+  hydraulic = rbind(hydraulic, new)
+}
+#convert Datetime from char to date
+hydraulic$V2 <- ymd_hms(hydraulic$V2)
+#renaming column headers
+names(hydraulic) <- c("location_id", "DateTime", "Date", "Pressure", "Hydraulic Pressure")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+hydraulic <- hydraulic %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+hydraulic$round_date <- lubridate::round_date(hydraulic$DateTime, "15 minutes")
+#adding mean rpm of the 15 minute intervals and dropping columns
+hydraulic <- hydraulic %>% group_by(location_id, round_date) %>% summarise(mean_pressure = mean(Pressure), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### active power-------------- 
+active_files = list.files("Data/Active Power", pattern="*.csv")
+active_list = list()
+for (i in 1:length(active_files)) {
+  if (file.size(paste0("Data/Active Power/", active_files[i])) >1){
+    active_list = c(active_list, active_files[i])
+  }
+}
+active = read.csv(paste0("Data/Active Power/", active_list[1]), header = FALSE)
+for (i in 2:length(active_list)){
+  new = read.csv(paste0("Data/Active Power/", active_list[i]), header = FALSE)
+  active = rbind(active, new)
+}
+#convert Datetime from char to date
+active$V2 <- ymd_hms(active$V2)
+#renaming column headers
+names(active) <- c("location_id", "DateTime", "Date", "power", "Active power")
+# sorting data by turbine, then the DateTime.
+active <- active %>% arrange(Turbine, DateTime) %>% distinct()
+#adding mean power of the 15 minute intervals and dropping columns
+active <-active %>% group_by(location_id, round_date) %>% summarise(mean_power = mean(power), .groups = 'drop') %>% as.data.frame()
+
+
+
+#### Ambient Temperature-------------- 
+ambient_files = list.files("Data/ambient_temperature", pattern="*.csv")
+ambient_list = list()
+for (i in 1:length(ambient_files)) {
+  if (file.size(paste0("Data/ambient_temperature/", ambient_files[i])) >1){
+    ambient_list = c(ambient_list, ambient_files[i])
+  }
+}
+ambient = read.csv(paste0("Data/ambient_temperature/", ambient_list[1]), header = FALSE)
+for (i in 2:length(ambient_list)){
+  new = read.csv(paste0("Data/ambient_temperature/", ambient_list[i]), header = FALSE)
+  ambient = rbind(ambient, new)
+}
+#convert Datetime from char to date
+ambient$V2 <- ymd_hms(ambient$V2)
+#renaming column headers
+names(ambient) <- c("location_id", "DateTime", "Date", "ambient_temp", "Ambient Temperature")
+# sorting data by turbine, then the DateTime.
+ambient <- ambient %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+ambient$round_date <- lubridate::round_date(ambient$DateTime, "15 minutes")
+#adding mean power of the 15 minute intervals and dropping columns
+ambient <-ambient %>% group_by(location_id, round_date) %>% summarise(mean_ambient = mean(ambient_temp), .groups = 'drop') %>% as.data.frame
+
+#### Wind Speed-------------- 
+wind_files = list.files("Data/Windspeed", pattern="*.csv")
+wind_list = list()
+for (i in 1:length(wind_files)) {
+  if (file.size(paste0("Data/Windspeed/", wind_files[i])) >1){
+    wind_list = c(wind_list, wind_files[i])
+  }
+}
+wind = read.csv(paste0("Data/Windspeed/", wind_list[1]), header = FALSE)
+for (i in 2:length(wind_list)){
+  new = read.csv(paste0("Data/Windspeed/", wind_list[i]), header = FALSE)
+  wind = rbind(wind, new)
+}
+#convert Datetime from char to date
+wind$V2 <- ymd_hms(wind$V2)
+#renaming column headers
+names(wind) <- c("location_id", "DateTime", "Date", "windspeed", "Wind Speed")
+# sorting data by turbine, then the DateTime.
+wind <- wind %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+wind$round_date <- lubridate::round_date(wind$DateTime, "15 minutes")
+#adding mean power of the 15 minute intervals and dropping columns
+wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed = mean(windspeed), .groups = 'drop') %>% as.data.frame()
+
+
+
+####Joining datasets------
+fully_joined = fault %>%
+  full_join(bearing, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(ims, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(oil, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(rpm, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(hydraulic, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(active, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(ambient, by=c("location_id"="location_id","round_date"="round_date")) %>%
+  full_join(wind, by=c("location_id"="location_id","round_date"="round_date"))
+
+
+
+```
+###Multivariate
+
+```{r multivariate}
+#Read in aggregated multidimensional data set
+db <- read.csv("Data/final_data.csv")
+
+
+#Data preparation----
+
+#Convert date time from char to date time
+db$DateTime <- ymd_hms(db$DateTime)
+db$round_date <- ymd_hms(db$round_date)
+# binary variable FaultOccurred. If a fault code is present in the time interval, 1, if not,0.
+db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
+as.factor(db$FaultOccurred)
+
+str(db)
+
+library(ggcorrplot)
+numeric <- dplyr::select_if(db, is.numeric)
+numeric <- subset(numeric, select = -c(FaultOccurred,FaultCode))
+r <- cor(numeric, use="pairwise.complete.obs")
+round(r,2)
+ggcorrplot(r) + labs(title = "Correlation matrix")
+#Notes:
+# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .93
+# We can see that Active Power is also directly related to the Generator RPM
+# We can see that Wind Speed weakly inversely related to Hydraulic Pressure, Generator RPM, and Gearbox Oil temperature
+
+
+
+#Replace all NA values in numeric columns with average column value.
+db$mean_bear_temp[is.na(db$mean_bear_temp)] <- mean(db$mean_bear_temp,na.rm=TRUE)
+db$mean_windspeed[is.na(db$mean_windspeed)] <- mean(db$mean_windspeed,na.rm=TRUE)
+db$mean_pressure[is.na(db$mean_pressure)] <- mean(db$mean_pressure,na.rm=TRUE)
+db$mean_rpm[is.na(db$mean_rpm)] <- mean(db$mean_rpm,na.rm=TRUE)
+db$mean_oil_temp[is.na(db$mean_oil_temp)] <- mean(db$mean_oil_temp,na.rm=TRUE)
+db$mean_ims[is.na(db$mean_ims)] <- mean(db$mean_ims,na.rm=TRUE)
+db$mean_power[is.na(db$mean_power)] <- mean(db$mean_power,na.rm=TRUE)
+
+ggplot(db,
+       aes(x=mean_rpm,
+           y=mean_power, 
+           group=FaultOccurred, 
+           color=FaultOccurred))+
+  ggtitle("Mean Active Power Vs Mean RPM")+
+  xlab("Mean Genorator RPM")+
+  ylab("Mean Active Power")+
+  geom_point()
+
+ggplot(db,
+       aes(x=mean_oil_temp,
+           y=mean_ims, 
+           group=FaultOccurred, 
+           color=FaultOccurred))+
+  ggtitle("Mean Active Power Vs Mean RPM")+
+  xlab("Mean Gearbox Oil Temperature")+
+  ylab("Mean Gearbox IMS Bearing temperature")+
+  geom_point()
+
+ggplot(db,
+       aes(x=mean_windspeed,
+           y=mean_pressure, 
+           group=FaultOccurred, 
+           color=FaultOccurred))+
+  ggtitle("Mean Wind Speed Vs Mean Hydraulic Pressure")+
+  xlab("Mean Wind Speed")+
+  ylab("Mean Hydraulic Pressure")+
+  geom_point()code
+
+```

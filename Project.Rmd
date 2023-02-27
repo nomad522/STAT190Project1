@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Data Processing
 
-```{r Libraries}
+```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
 
 # libraries 
 library(tidyverse)
@@ -376,7 +376,7 @@ ggplot(db,
   ggtitle("Mean Active Power Vs Mean Gearbox IMS Bearing Temperature")+
   xlab("Mean Gearbox Oil Temperature")+
   ylab("Mean Gearbox IMS Bearing temperature")+
-  geom_point()
+  geom_point(outlier.shape = NA)
 
 ggplot(db,
        aes(x=mean_windspeed,

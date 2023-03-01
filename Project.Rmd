@@ -345,6 +345,10 @@ imputed_dataset$Gearbox_IMS[is.na(imputed_dataset$Gearbox_IMS)] <- mean(imputed_
 imputed_dataset$Active_Power[is.na(imputed_dataset$Active_Power)] <- mean(imputed_dataset$Active_Power,na.rm=TRUE)
 imputed_dataset$Ambient_Temp[is.na(imputed_dataset$Ambient_Temp)] <- mean(imputed_dataset$Ambient_Temp,na.rm=TRUE)
 
+# binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
+imputed_dataset$FaultOccurred <-with(imputed_dataset, ifelse(is.na(db$FaultCode),"Yes","No"))
+as.factor(imputed_dataset$FaultOccurred)
+
 # Output Dataset impouted
 write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 
@@ -356,10 +360,6 @@ write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in imputed dataset
 db <- read.csv("Data/imputed_final_data.csv")
-
-# binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
-db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
-as.factor(db$FaultOccurred)
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
@@ -376,18 +376,6 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
 
-#Replace all NA values in numeric columns with average column value.
-db$mean_bear_temp[is.na(db$mean_bear_temp)] <- mean(db$mean_bear_temp,na.rm=TRUE)
-db$mean_windspeed[is.na(db$mean_windspeed)] <- mean(db$mean_windspeed,na.rm=TRUE)
-db$mean_pressure[is.na(db$mean_pressure)] <- mean(db$mean_pressure,na.rm=TRUE)
-db$mean_rpm[is.na(db$mean_rpm)] <- mean(db$mean_rpm,na.rm=TRUE)
-db$mean_oil_temp[is.na(db$mean_oil_temp)] <- mean(db$mean_oil_temp,na.rm=TRUE)
-db$mean_ims[is.na(db$mean_ims)] <- mean(db$mean_ims,na.rm=TRUE)
-db$mean_power[is.na(db$mean_power)] <- mean(db$mean_power,na.rm=TRUE)
-# delete all duplicated rows
-db <- db[!duplicated(db[,8:9]),]
-#Order based on Turbine and date
-names(db) <- c("Turbine", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Fault_Occurred")
 
 p1 <- ggplot(db, aes(x=Fault_Occurred, y=Bearing_Temp)) + 
   geom_boxplot()
@@ -462,22 +450,3 @@ plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
 
 ```
 
-
-# Specifics
-# 1. Show code
-# 2. Show graphs
-#   Research questions: What is the optimal temperature of components to prevent fault and maximize energy produced?
-#                       Which variables are related to our temperature vcariables?
-# 3. Descriptive: Use a logistic regression model with log link for binary Y variable
-# X Variables: all numeric sensor reading data, categorical X variables?
-# Y Variable: Binary Fault_Occurred Y variable
-# Predictive: K-Means clustering due to large data size, k = 3?
-
-# Issues Encountered
-# 1. Runtime issues due to size of datasets
-# 2. Visualizations can be misleading
-# 3. How to join the work order data to the multivariate data set?
-
-# Plans for next week
-# 1. Create better visualizations to assess variable relationships
-# 2. Begin selecting variables for models and creating regression models

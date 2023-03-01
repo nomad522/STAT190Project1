@@ -328,9 +328,25 @@ fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Typ
 names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
 
 
-
+# Output Dataset not imputed
 write.csv(fully_joined, "final_data-v2.csv", row.names=FALSE)
 
+
+
+#Impute Dataset
+imputed_dataset = fully_joined
+#Replace all NA values in numeric columns with average column value.
+imputed_dataset$Bearing_Temp[is.na(imputed_dataset$Bearing_Temp)] <- mean(imputed_dataset$Bearing_Temp,na.rm=TRUE)
+imputed_dataset$Windspeed[is.na(imputed_dataset$Windspeed)] <- mean(imputed_dataset$Windspeed,na.rm=TRUE)
+imputed_dataset$Hydraulic_Pressure[is.na(imputed_dataset$Hydraulic_Pressure)] <- mean(imputed_dataset$Hydraulic_Pressure,na.rm=TRUE)
+imputed_dataset$Generator_RPM[is.na(imputed_dataset$Generator_RPM)] <- mean(imputed_dataset$Generator_RPM,na.rm=TRUE)
+imputed_dataset$Oil_Temp[is.na(imputed_dataset$Oil_Temp)] <- mean(imputed_dataset$Oil_Temp,na.rm=TRUE)
+imputed_dataset$Gearbox_IMS[is.na(imputed_dataset$Gearbox_IMS)] <- mean(imputed_dataset$Gearbox_IMS,na.rm=TRUE)
+imputed_dataset$Active_Power[is.na(imputed_dataset$Active_Power)] <- mean(imputed_dataset$Active_Power,na.rm=TRUE)
+imputed_dataset$Ambient_Temp[is.na(imputed_dataset$Ambient_Temp)] <- mean(imputed_dataset$Ambient_Temp,na.rm=TRUE)
+
+# Output Dataset impouted
+write.csv(fully_joined, "imputed_final_data.csv", row.names=FALSE)
 
 
 ```
@@ -450,22 +466,3 @@ plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
 
 ```
 
-
-# Specifics
-# 1. Show code
-# 2. Show graphs
-#   Research questions: What is the optimal temperature of components to prevent fault and maximize energy produced?
-#                       Which variables are related to our temperature vcariables?
-# 3. Descriptive: Use a logistic regression model with log link for binary Y variable
-# X Variables: all numeric sensor reading data, categorical X variables?
-# Y Variable: Binary Fault_Occurred Y variable
-# Predictive: K-Means clustering due to large data size, k = 3?
-
-# Issues Encountered
-# 1. Runtime issues due to size of datasets
-# 2. Visualizations can be misleading
-# 3. How to join the work order data to the multivariate data set?
-
-# Plans for next week
-# 1. Create better visualizations to assess variable relationships
-# 2. Begin selecting variables for models and creating regression models

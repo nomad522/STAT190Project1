@@ -346,7 +346,7 @@ imputed_dataset$Active_Power[is.na(imputed_dataset$Active_Power)] <- mean(impute
 imputed_dataset$Ambient_Temp[is.na(imputed_dataset$Ambient_Temp)] <- mean(imputed_dataset$Ambient_Temp,na.rm=TRUE)
 
 # Output Dataset impouted
-write.csv(fully_joined, "imputed_final_data.csv", row.names=FALSE)
+write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 
 
 ```
@@ -354,16 +354,12 @@ write.csv(fully_joined, "imputed_final_data.csv", row.names=FALSE)
 ## Matrix
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
-#Read in aggregated multidimensional data set
-db <- read.csv("Data/final_data-v2.csv")
+#Read in imputed dataset
+db <- read.csv("Data/imputed_final_data.csv")
 
-#Convert date time from char to date time
-db$DateTime <- ymd_hms(db$DateTime)
-db$round_date <- ymd_hms(db$round_date)
 # binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
 db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
 as.factor(db$FaultOccurred)
-db <- subset(db, select = -c(DateTime, Date, FaultCode, StatusCode, Description, Type))
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
@@ -466,3 +462,22 @@ plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
 
 ```
 
+
+# Specifics
+# 1. Show code
+# 2. Show graphs
+#   Research questions: What is the optimal temperature of components to prevent fault and maximize energy produced?
+#                       Which variables are related to our temperature vcariables?
+# 3. Descriptive: Use a logistic regression model with log link for binary Y variable
+# X Variables: all numeric sensor reading data, categorical X variables?
+# Y Variable: Binary Fault_Occurred Y variable
+# Predictive: K-Means clustering due to large data size, k = 3?
+
+# Issues Encountered
+# 1. Runtime issues due to size of datasets
+# 2. Visualizations can be misleading
+# 3. How to join the work order data to the multivariate data set?
+
+# Plans for next week
+# 1. Create better visualizations to assess variable relationships
+# 2. Begin selecting variables for models and creating regression models

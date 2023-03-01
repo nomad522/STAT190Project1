@@ -321,6 +321,14 @@ fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., active, c('location_id', 'round_date'))%>%
   full_join(., ambient, by=c('location_id', 'round_date'))
 
+# Removing unused columns/duplicates
+fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Type, Date))
+
+# Renaming columns
+names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
+
+
+
 write.csv(fully_joined, "final_data-v2.csv", row.names=FALSE)
 
 
@@ -331,7 +339,7 @@ write.csv(fully_joined, "final_data-v2.csv", row.names=FALSE)
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in aggregated multidimensional data set
-db <- read.csv("Data/final_data.csv")
+db <- read.csv("Data/final_data-v2.csv")
 
 #Convert date time from char to date time
 db$DateTime <- ymd_hms(db$DateTime)

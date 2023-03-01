@@ -21,7 +21,6 @@ library(lubridate)
 library(dplyr)
 library(ggcorrplot)
 library(gridExtra)
-
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
 
@@ -98,8 +97,10 @@ for (i in 2:length(fault_list)){
 fault$V2 <- ymd_hms(fault$V2)
 #renaming column headers
 names(fault) <- c("location_id", "DateTime", "Date", "FaultCode", "StatusCode", "Description", "Type")
-# sorting data by turbine, then the DateTime.
 fault <- fault %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+fault$round_date <- lubridate::round_date(fault$DateTime, "15 minutes")
+
 
 
 
@@ -259,7 +260,7 @@ active <-active %>% group_by(location_id, round_date) %>% summarise(mean_power =
 
 
 
-#### Ambient Temperature-------------- 
+#### Ambient Temperature-------------- Needs work*****
 ambient_files = list.files("Data/ambient_temperature", pattern="*.csv")
 ambient_list = list()
 for (i in 1:length(ambient_files)) {
@@ -277,7 +278,8 @@ ambient$V2 <- ymd_hms(ambient$V2)
 #renaming column headers
 names(ambient) <- c("location_id", "DateTime", "Date", "ambient_temp", "Ambient Temperature")
 # sorting data by turbine, then the DateTime.
-ambient <- ambient %>% arrange(location_id, DateTime) %>% distinct()
+ambient <- ambient %>% 
+  arrange(location_id, DateTime) %>% distinct()
 #Adding a variable round_date to round times to nearest 15 minute intervals
 ambient$round_date <- lubridate::round_date(ambient$DateTime, "15 minutes")
 #adding mean power of the 15 minute intervals and dropping columns
@@ -310,17 +312,18 @@ wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed =
 
 
 ####Joining datasets------
-fully_joined = fault %>%
-  full_join(bearing, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(ims, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(oil, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(rpm, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(hydraulic, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(active, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(ambient, by=c("location_id"="location_id","round_date"="round_date")) %>%
-  full_join(wind, by=c("location_id"="location_id","round_date"="round_date"))
+fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
+  full_join(., wind, c('location_id', 'round_date')) %>%
+  full_join(., hydraulic, c('location_id', 'round_date')) %>%
+  full_join(., rpm, c('location_id', 'round_date')) %>%
+  full_join(., oil, c('location_id', 'round_date')) %>%
+  full_join(., ims, c('location_id', 'round_date')) %>%
+  full_join(., active, c('location_id', 'round_date'))%>%
+  full_join(., ambient, by=c('location_id', 'round_date'))
 
-write.csv(full_joined, "Data\\final_data.csv", row.names=FALSE)
+write.csv(fully_joined, "final_data-v2.csv", row.names=FALSE)
+
+
 
 ```
 
@@ -333,21 +336,10 @@ db <- read.csv("Data/final_data.csv")
 #Convert date time from char to date time
 db$DateTime <- ymd_hms(db$DateTime)
 db$round_date <- ymd_hms(db$round_date)
-
-# delete all duplicated rows
-db <- db[!duplicated(db[,8:9]),]
-
-#Order based on Turbine and date
-db <- db %>% arrange(location_id, round_date)
-
 # binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
 db$FaultOccurred <-with(db, ifelse(is.na(db$FaultCode),"Yes","No"))
 as.factor(db$FaultOccurred)
-
 db <- subset(db, select = -c(DateTime, Date, FaultCode, StatusCode, Description, Type))
-View(db)
-
-
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
@@ -372,57 +364,42 @@ db$mean_rpm[is.na(db$mean_rpm)] <- mean(db$mean_rpm,na.rm=TRUE)
 db$mean_oil_temp[is.na(db$mean_oil_temp)] <- mean(db$mean_oil_temp,na.rm=TRUE)
 db$mean_ims[is.na(db$mean_ims)] <- mean(db$mean_ims,na.rm=TRUE)
 db$mean_power[is.na(db$mean_power)] <- mean(db$mean_power,na.rm=TRUE)
-
+# delete all duplicated rows
+db <- db[!duplicated(db[,8:9]),]
+#Order based on Turbine and date
 names(db) <- c("Turbine", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Fault_Occurred")
 
-### Create graphs for Math Video ----
-# Boxplots
 p1 <- ggplot(db, aes(x=Fault_Occurred, y=Bearing_Temp)) + 
   geom_boxplot()
-p1
-
 p2 <- ggplot(db, aes(x=Fault_Occurred, y=Windspeed)) + 
   geom_boxplot()
-p2
-
 p3 <- ggplot(db, aes(x=Fault_Occurred, y=Hydraulic_Pressure)) + 
   geom_boxplot()
-p3
-
 p4 <- ggplot(db, aes(x=Fault_Occurred, y=Generator_RPM)) + 
   geom_boxplot()
-p4
-
 p5 <- ggplot(db, aes(x=Fault_Occurred, y=Oil_Temp)) + 
   geom_boxplot()
-p5
-
 p6 <- ggplot(db, aes(x=Fault_Occurred, y=Gearbox_IMS)) + 
   geom_boxplot()
-p6
-
 p7 <- ggplot(db, aes(x=Fault_Occurred, y=Active_Power)) + 
   geom_boxplot()
-p7
-
-#Print all plots in 4 x 2 grid
 grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol=2)
 
 ggplot(db,
-       aes(x=mean_rpm,
-           y=mean_power, 
-           group=FaultOccurred, 
-           color=FaultOccurred))+
+       aes(x=Generator_RPM,
+           y=Active_Power, 
+           group=Fault_Occurred, 
+           color=Fault_Occurred))+
   ggtitle("Mean Active Power Vs Mean RPM")+
   xlab("Mean Genorator RPM")+
   ylab("Mean Active Power")+
   geom_point()
 
 ggplot(db,
-       aes(x=mean_oil_temp,
-           y=mean_ims, 
-           group=FaultOccurred, 
-           color=FaultOccurred))+
+       aes(x=Oil_Temp,
+           y=Gearbox_IMS, 
+           group=Fault_Occurred, 
+           color=Fault_Occurred))+
   ggtitle("Mean Gearbox Oil Temperature Vs Mean Gearbox IMS Bearing Temperature")+
   xlab("Mean Gearbox Oil Temperature")+
   ylab("Mean Gearbox IMS Bearing temperature")+
@@ -430,16 +407,41 @@ ggplot(db,
   geom_point()
 
 ggplot(db,
-       aes(x=mean_windspeed,
-           y=mean_pressure, 
-           group=FaultOccurred, 
-           color=FaultOccurred))+
+       aes(x=Windspeed,
+           y=Hydraulic_Pressure, 
+           group=Fault_Occurred, 
+           color=Fault_Occurred))+
   ggtitle("Mean Wind Speed Vs Mean Hydraulic Pressure")+
   xlab("Mean Wind Speed")+
   ylab("Mean Hydraulic Pressure")+
   geom_point()
 
+ggplot(db,
+       aes(x=Windspeed,
+           y=Active_Power, 
+           group=Fault_Occurred, 
+           color=Fault_Occurred))+
+  ggtitle("Mean Wind Speed Vs Mean Active Power")+
+  xlab("Mean Wind Speed")+
+  ylab("Mean Active Power")+
+  geom_point()
+
+ggplot(db, aes(Active_Power)) +
+geom_histogram(aes(fill = Fault_Occurred), color = "black", binwidth = 50) +
+ggtitle("Histogram of Active Power by Fault Occurred") +
+xlab("Power Output") +
+ylab("Number of Obvs.")
+
+oilPow = subset(db, select = c(Oil_Temp, Active_Power, Fault_Occurred))
+oilPow = na.omit(oilPow)
+
+plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
+     xlab="Active Power", ylab="Oil Temp", pch=19, col = factor(oilPow$Fault_Occurred))
+
+
+
 ```
+
 
 # Specifics
 # 1. Show code

@@ -363,6 +363,7 @@ db <- read.csv("Data/imputed_final_data.csv")
 
 library(ggcorrplot)
 numeric <- dplyr::select_if(db, is.numeric)
+numeric <- subset(numeric, select = -c(FaultCode)) # removing Fault code as it is a unique set
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")

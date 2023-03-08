@@ -22,6 +22,7 @@ library(dplyr)
 library(ggcorrplot)
 library(gridExtra)
 library(tidyr)
+library(ggplot2)
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
 
@@ -79,14 +80,14 @@ wo$wo_start_date = ymd_hms(wo$wo_start_date)
 wo$wo_finish_date = ymd_hms(wo$wo_finish_date)
 #table(wo$cause_code)
 
-# This first converts "null" into a NA character. Then by grouping of OrderNo, fills in NA's with existing values of component_type, within a OrderNo if they exist. Then distinct() is ran to keep only unique rows. This allows us to keep unique work order numbers with component types variable where availible. 
+# This first converts the string "null" into a NA value. Then by grouping of OrderNo, fills in NA's with existing values of component_type, within a OrderNo if they exist. Then distinct() is ran to keep only unique rows. This allows us to keep unique work order numbers with component types when it is available. 
 workorder = wo %>% 
     mutate(component_type = case_when(component_type == "null" ~ NA_character_,
                                TRUE ~ component_type)) %>% 
     group_by(OrderNo) %>% 
     fill(component_type, .direction = 'up') %>% 
     fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
-# compared to this which just keeps distinct OrderNo regaurdless of other variables, causing use to lose most of the component_type 
+# compared to this which just keeps distinct OrderNo regaurdless of other variables, causing us to lose most of the component_type 
 # test = distinct(wo, OrderNo, .keep_all = TRUE)
 
 str(workorder)
@@ -369,95 +370,50 @@ write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 ## Matrix
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
-#Read in imputed dataset
-db <- read.csv("Data/imputed_final_data.csv")
+#Read in raw dataset
+db <- read.csv("Data/final_data-v2.csv")
 
-library(ggcorrplot)
+# There are only 311 completed sensor metrics for the data set.
+db2 = db[complete.cases(db[,5:12]),]
+
 numeric <- dplyr::select_if(db, is.numeric)
-numeric <- subset(numeric, select = -c(FaultCode)) # removing Fault code as it is a unique set
+numeric <- subset(numeric)
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")
 #Notes:
-# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .93
-# We can see that Active Power is also directly related to the Generator RPM
-# We can see that Wind Speed weakly inversely related to Hydraulic Pressure, Generator RPM, and Gearbox Oil temperature
+# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .93.
+# We can see that Active Power is also directly related to the Generator RPM. Which seems right.
+# We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power
 
 ```
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
 
-
-p1 <- ggplot(db, aes(x=Fault_Occurred, y=Bearing_Temp)) + 
-  geom_boxplot()
-p2 <- ggplot(db, aes(x=Fault_Occurred, y=Windspeed)) + 
-  geom_boxplot()
-p3 <- ggplot(db, aes(x=Fault_Occurred, y=Hydraulic_Pressure)) + 
-  geom_boxplot()
-p4 <- ggplot(db, aes(x=Fault_Occurred, y=Generator_RPM)) + 
-  geom_boxplot()
-p5 <- ggplot(db, aes(x=Fault_Occurred, y=Oil_Temp)) + 
-  geom_boxplot()
-p6 <- ggplot(db, aes(x=Fault_Occurred, y=Gearbox_IMS)) + 
-  geom_boxplot()
-p7 <- ggplot(db, aes(x=Fault_Occurred, y=Active_Power)) + 
-  geom_boxplot()
-grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol=2)
-
 ggplot(db,
        aes(x=Generator_RPM,
-           y=Active_Power, 
-           group=Fault_Occurred, 
-           color=Fault_Occurred))+
-  ggtitle("Mean Active Power Vs Mean RPM")+
-  xlab("Mean Genorator RPM")+
-  ylab("Mean Active Power")+
-  geom_point()
-
-ggplot(db,
-       aes(x=Oil_Temp,
-           y=Gearbox_IMS, 
-           group=Fault_Occurred, 
-           color=Fault_Occurred))+
-  ggtitle("Mean Gearbox Oil Temperature Vs Mean Gearbox IMS Bearing Temperature")+
-  xlab("Mean Gearbox Oil Temperature")+
-  ylab("Mean Gearbox IMS Bearing temperature")+
-  coord_cartesian(xlim = c(20,75), ylim = c(20,75))+
+           y=Active_Power))+
+  ggtitle("Active Power Vs Generator RPM")+
+  xlab("Genorator RPM")+
+  ylab("Active Power")+
   geom_point()
 
 ggplot(db,
        aes(x=Windspeed,
-           y=Hydraulic_Pressure, 
-           group=Fault_Occurred, 
-           color=Fault_Occurred))+
-  ggtitle("Mean Wind Speed Vs Mean Hydraulic Pressure")+
-  xlab("Mean Wind Speed")+
-  ylab("Mean Hydraulic Pressure")+
+           y=Hydraulic_Pressure))+
+  ggtitle("Wind Speed Vs Hydraulic Pressure")+
+  xlab("Wind Speed")+
+  ylab("Hydraulic Pressure")+
   geom_point()
 
 ggplot(db,
        aes(x=Windspeed,
-           y=Active_Power, 
-           group=Fault_Occurred, 
-           color=Fault_Occurred))+
-  ggtitle("Mean Wind Speed Vs Mean Active Power")+
-  xlab("Mean Wind Speed")+
-  ylab("Mean Active Power")+
+           y=Active_Power))+
+  ggtitle("Wind Speed Vs Active Power")+
+  xlab("Wind Speed")+
+  ylab("Active Power")+
   geom_point()
-
-ggplot(db, aes(Active_Power)) +
-geom_histogram(aes(fill = Fault_Occurred), color = "black", binwidth = 50) +
-ggtitle("Histogram of Active Power by Fault Occurred") +
-xlab("Power Output") +
-ylab("Number of Obvs.")
-
-oilPow = subset(db, select = c(Oil_Temp, Active_Power, Fault_Occurred))
-oilPow = na.omit(oilPow)
-
-plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
-     xlab="Active Power", ylab="Oil Temp", pch=19, col = factor(oilPow$Fault_Occurred))
-
 
 
 ```

@@ -14,13 +14,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Data Processing
 
 ```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
-
+rm(list = ls())
 # libraries 
 library(tidyverse)
 library(lubridate)
 library(dplyr)
 library(ggcorrplot)
 library(gridExtra)
+library(tidyr)
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
 
@@ -62,23 +63,33 @@ then aggregated by the average in 15 minute intervals. The data frames are then 
 
 
 ```{r data_processing, eval=FALSE}
-#### Will not run unless you remove eval=False ^
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
 
 #####workorder------------
 wo = read.csv("Data/work order scrubbed.csv")
 # work order exploration and data cleaning
 # cause_code all null
-table(wo$cause_code)
+#table(wo$cause_code)
 # start date is character
 #convert start and finish columns to date objects
 wo$wo_start_date = ymd_hms(wo$wo_start_date)
 # end date is also character
 #convert start and finish columns to date objects
 wo$wo_finish_date = ymd_hms(wo$wo_finish_date)
-# cause_code all null ***********need to fix
-table(wo$cause_code)
+#table(wo$cause_code)
 
+# This first converts "null" into a NA character. Then by grouping of OrderNo, fills in NA's with existing values of component_type, within a OrderNo if they exist. Then distinct() is ran to keep only unique rows. This allows us to keep unique work order numbers with component types variable where availible. 
+workorder = wo %>% 
+    mutate(component_type = case_when(component_type == "null" ~ NA_character_,
+                               TRUE ~ component_type)) %>% 
+    group_by(OrderNo) %>% 
+    fill(component_type, .direction = 'up') %>% 
+    fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
+# compared to this which just keeps distinct OrderNo regaurdless of other variables, causing use to lose most of the component_type 
+# test = distinct(wo, OrderNo, .keep_all = TRUE)
 
+str(workorder)
 
 #### fault code---------------- 
 fault_files = list.files("Data/Fault Codes", pattern="*.csv")
@@ -125,7 +136,7 @@ names(bearing) <- c("location_id", "DateTime", "Date", "Temperature", "Bearing D
 bearing <- bearing %>% arrange(location_id, DateTime) %>% distinct()
 #Adding a variable round_date to round times to nearest 15 minute intervals
 bearing$round_date <- lubridate::round_date(bearing$DateTime, "15 minutes")
-#adding mean of the 15 minute intervals and droping columns
+#adding mean of the 15 minute intervals and dropping columns
 bearing <- bearing %>% group_by(location_id, round_date) %>% summarise(mean_temp = mean(Temperature), .groups = 'drop') %>% as.data.frame()
 
 
@@ -450,4 +461,3 @@ plot(oilPow$Active_Power, oilPow$Oil_Temp, main="Active Power vs. Oil Temp",
 
 
 ```
-

@@ -339,11 +339,91 @@ fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Typ
 # Renaming columns
 names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
 
+```
 
+```{r fault code discriptions}
+
+unique(fully_joined$Discription)
+# If the Turbine stops and needs work, it's critical
+# If the fault code is just a warning its a warning... something is wrong but still running
+# else it is unknown, manual stopped or stopped for some other reason
+# Due to the for loop, this takes a long time to run...
+fully_joined$FaultCodeType = "Code Type"
+suppressWarnings(
+for (i in 1:nrow(fully_joined)){
+  if (fully_joined$Discription[i] == "Gear Oil Temperature High"||
+      fully_joined$Discription[i] == "Gear Oil Pressure Too High/Low"||
+      fully_joined$Discription[i] == "Converter Tripped, Auto Start" ||
+      fully_joined$Discription[i] == "Mainbreaker Cut Out"||
+      fully_joined$Discription[i] == "Gear Oil Pump/Blower Superheated"||
+      fully_joined$Discription[i] == "Ups Bypass Error"||
+      fully_joined$Discription[i] == "Ups-Failure"||  
+      fully_joined$Discription[i] == "Slip Ring Error"||
+      fully_joined$Discription[i] == "Osc. In Gen Speed, Cons. Lim"||
+      fully_joined$Discription[i] == "Ims-Gen Gearbearing Temp Too High"||
+      fully_joined$Discription[i] == "Ups-Failure"||
+      fully_joined$Discription[i] == "Hs-Gen Gearbearing Superheated"||
+      fully_joined$Discription[i] == "Grid Filter Current Overload"||
+      fully_joined$Discription[i] == "Gearoil Level Too Low"||
+      fully_joined$Discription[i] == "Rpm Sensor Error"|| ## Genrpm/Srsg Speed error mentioned in Daniel's email?
+      fully_joined$Discription[i] == "Srsg Activated"|| ##only instance with srsg so i included it 
+      fully_joined$Discription[i] == "Lms-Rot Gearbearing Temp Too High" # Not actually in our fault code descriptions but was in the email from Daniel
+      ){fully_joined$FaultCodeType[i] = "Critical"}
+  else if (fully_joined$Discription[i] == "Gear Oil Temperature Warning"||
+           fully_joined$Discription[i] == "Converter Trip, External"||
+           fully_joined$Discription[i] == "Converter Tripped, General"||
+           fully_joined$Discription[i] == "Main Bearing Temp Too High"||
+           fully_joined$Discription[i] == "Generator High Speed Waiting"||
+           fully_joined$Discription[i] == "Inv.(Tow) Cool Water Pres. Warning"||
+           fully_joined$Discription[i] == "Inv.(Tow) Cool Water Pres. Low"||
+           fully_joined$Discription[i] == "Tower Conv. Cooling Water Low"||
+           fully_joined$Discription[i] == "Hydraulic Filter Warning"||
+           fully_joined$Discription[i] == "Gear Oil Temp Sensor Warning"||
+           fully_joined$Discription[i] == "Main Bearing Temp Warning"||
+           fully_joined$Discription[i] == "Lmu Alarm Overspeed"||
+           fully_joined$Discription[i] == "Brake Pressure Too Low"||
+           fully_joined$Discription[i] == "Inverter Temperature High"||
+           fully_joined$Discription[i] == "Grdinv: 38 D1 Volt High"||
+           fully_joined$Discription[i] == "Grease Level Low, Gen Bearings"||
+           fully_joined$Discription[i] == "Grdinv: 38 D1 Volt High"||
+           fully_joined$Discription[i] == "Yaw Limit Sensor Activated"||
+           fully_joined$Discription[i] == "No Lubrication, Gen Bearings"||
+           fully_joined$Discription[i] == "Brake (Gen) Temperature Error"||
+           fully_joined$Discription[i] == "Dc Voltage Low"||
+           fully_joined$Discription[i] == "Grease Level Low, Hub"||
+           fully_joined$Discription[i] == "Geninv: 38 D1 Volt High"||
+           fully_joined$Discription[i] == "Gearoil Level Too Low"||
+           fully_joined$Discription[i] == "Geninv: 56 D3 Volt High"||
+           fully_joined$Discription[i] == "Inv. Cooling Water Temp Warning"||
+           fully_joined$Discription[i] == "Delta Module Temperature High"||
+           fully_joined$Discription[i] == "Gear Oil Temp Sensor Warning"||
+           fully_joined$Discription[i] == "Gear Bearing Hs-Gen Sensor Warning"||
+           fully_joined$Discription[i] == "Gear Bearing Hs-Rot Sensor Warning"||
+           fully_joined$Discription[i] == "Gear Bearing Ims-Gen Sensor Warning"||
+           fully_joined$Discription[i] == "Gear Bearing Ims-Rot Sensor Warning"||
+           fully_joined$Discription[i] == "Hs-Rot Gearbearing Temp Warning"||
+           fully_joined$Discription[i] == "Fuse Blown, Grid Filter"||
+           fully_joined$Discription[i] == "Hs-Gen Gearbearing Temp Warning"||
+           fully_joined$Discription[i] == "High Upper Voltage Exceeded"||
+           fully_joined$Discription[i] == "Low Lower Voltage Exceeded"||
+           fully_joined$Discription[i] == "UPS Battery Low, Warning"||
+           fully_joined$Discription[i] == "Ups Battery Low"||
+           fully_joined$Discription[i] == "Dc Fuse Blown"||
+           fully_joined$Discription[i] == "Gear Oil Temperature Low"||
+           fully_joined$Discription[i] == "Hydraulic Oil Too Cold"||
+           fully_joined$Discription[i] == "Blown Yaw Brake Fuse"||
+           fully_joined$Discription[i] == "Too Many Slip Ring Errors"||
+           fully_joined$Discription[i] == "No Lubrication, Yaw System"||
+           fully_joined$Discription[i] == "Lmu Sensor Error"||
+           fully_joined$Discription[i] == "Srsg Activated"
+           ){fully_joined$FaultCodeType[i] = "Warining"}
+  else {fully_joined$FaultCodeType[i] = "Unknown"}
+})
+```
+
+```{r output file}
 # Output Dataset not imputed
-write.csv(fully_joined, "final_data-v2.csv", row.names=FALSE)
-
-
+write.csv(fully_joined, "final_data-v3.csv", row.names=FALSE)
 
 #Impute Dataset
 imputed_dataset = fully_joined
@@ -363,7 +443,6 @@ as.factor(imputed_dataset$FaultOccurred)
 
 # Output Dataset impouted
 write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
-
 
 ```
 
@@ -407,13 +486,14 @@ ggplot(db,
   ylab("Hydraulic Pressure")+
   geom_point()
 
-ggplot(db,
+ggplot(db2,
        aes(x=Windspeed,
            y=Active_Power))+
   ggtitle("Wind Speed Vs Active Power")+
   xlab("Wind Speed")+
   ylab("Active Power")+
   geom_point()
+
 
 
 ```

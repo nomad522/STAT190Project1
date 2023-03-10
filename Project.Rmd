@@ -351,7 +351,8 @@ unique(fully_joined$Discription)
 fully_joined$FaultCodeType = "Code Type"
 suppressWarnings(
 for (i in 1:nrow(fully_joined)){
-  if (fully_joined$Discription[i] == "Gear Oil Temperature High"||
+  if (is.na(fully_joined$Discription[i])){fully_joined$FaultCodeType[i] = "Other"}
+  else if (fully_joined$Discription[i] == "Gear Oil Temperature High"||
       fully_joined$Discription[i] == "Gear Oil Pressure Too High/Low"||
       fully_joined$Discription[i] == "Converter Tripped, Auto Start" ||
       fully_joined$Discription[i] == "Mainbreaker Cut Out"||
@@ -365,9 +366,9 @@ for (i in 1:nrow(fully_joined)){
       fully_joined$Discription[i] == "Hs-Gen Gearbearing Superheated"||
       fully_joined$Discription[i] == "Grid Filter Current Overload"||
       fully_joined$Discription[i] == "Gearoil Level Too Low"||
-      fully_joined$Discription[i] == "Rpm Sensor Error"|| ## Genrpm/Srsg Speed error mentioned in Daniel's email?
-      fully_joined$Discription[i] == "Srsg Activated"|| ##only instance with srsg so i included it 
-      fully_joined$Discription[i] == "Lms-Rot Gearbearing Temp Too High" # Not actually in our fault code descriptions but was in the email from Daniel
+      fully_joined$Discription[i] == "Rpm Sensor Error"||
+      fully_joined$Discription[i] == "Srsg Activated"||
+      fully_joined$Discription[i] == "Lms-Rot Gearbearing Temp Too High"
       ){fully_joined$FaultCodeType[i] = "Critical"}
   else if (fully_joined$Discription[i] == "Gear Oil Temperature Warning"||
            fully_joined$Discription[i] == "Converter Trip, External"||
@@ -416,8 +417,8 @@ for (i in 1:nrow(fully_joined)){
            fully_joined$Discription[i] == "No Lubrication, Yaw System"||
            fully_joined$Discription[i] == "Lmu Sensor Error"||
            fully_joined$Discription[i] == "Srsg Activated"
-           ){fully_joined$FaultCodeType[i] = "Warining"}
-  else {fully_joined$FaultCodeType[i] = "Unknown"}
+  ){fully_joined$FaultCodeType[i] = "Warining"}
+  else {fully_joined$FaultCodeType[i] = "Other"}
 })
 ```
 
@@ -450,7 +451,7 @@ write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/final_data-v2.csv")
+db <- read.csv("Data/final_data-v3.csv")
 
 # There are only 311 completed sensor metrics for the data set.
 db2 = db[complete.cases(db[,5:12]),]
@@ -472,7 +473,8 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 
 ggplot(db,
        aes(x=Generator_RPM,
-           y=Active_Power))+
+           y=Active_Power,
+           color = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Genorator RPM")+
   ylab("Active Power")+
@@ -497,3 +499,5 @@ ggplot(db2,
 
 
 ```
+
+

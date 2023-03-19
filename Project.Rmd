@@ -351,7 +351,8 @@ names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bea
 
 ```
 
-```{r fault code discriptions}
+```{r fault code discriptions, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
 unique(fully_joined$Discription)
 # If the Turbine stops and needs work, it's critical
@@ -434,7 +435,9 @@ for (i in 1:nrow(fully_joined)){
 ```
 
 
-```{r fuzzy join work order}
+```{r fuzzy join work order, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
 # fuzzy join workorder and fully_joined
 
 unique(workorder$location_id)
@@ -474,14 +477,23 @@ names(fuzzy_list) <- c("Order_Info", "Discription")
 
 # joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
 workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
+#removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
+workorder <- subset(workorder, select = -c(is_failure, cause_code))
+
+####### need to figure out how we merge it by time. !!!!!!!!!!!!!!!!! 
+
+names(workorder) <- c("Timestamp", "Discription")
 
 
+fully_joinedr <- full_join(workorder, fully_joined, by=c('location_id'))
 
 ```
 
-```{r output file}
+```{r output file, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
 # Output Dataset not imputed
-write.csv(fully_joined, "final_data-v3.csv", row.names=FALSE)
+write.csv(fully_joined, "final_data-v4.csv", row.names=FALSE)
 
 #Impute Dataset
 imputed_dataset = fully_joined
@@ -541,7 +553,7 @@ g1 = ggplot(db,
   theme_bw()+
   scale_color_brewer(palette = "Dark2")+
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_point()
+  geom_point(alpha = .5)
 
 # not useful
 g2 = ggplot(db %>% filter(FaultCodeType != "Other"),
@@ -559,7 +571,7 @@ g2 = ggplot(db %>% filter(FaultCodeType != "Other"),
   geom_point()
 
 
-grid.arrange(g1, g2, ncol=1)
+grid.arrange(g1, g2, heights=c(3,3))
 
 ggplot(db,
        aes(x=Windspeed,

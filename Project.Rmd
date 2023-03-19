@@ -541,35 +541,36 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
 display.brewer.all(colorblindFriendly = TRUE)
 
-
-
-g1 = ggplot(db,
+g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
        aes(x=Generator_RPM ,
            y=Active_Power,
-           color = FaultCodeType))+
+           color = FaultCodeType,
+           alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Genorator RPM")+
   ylab("Active Power")+
+  scale_x_continuous(limits = c(500, 1400))+
   theme_bw()+
-  scale_color_brewer(palette = "Dark2")+
+  scale_colour_manual(values = c("#DC267F", "#648FFF", "#FFB000"))+
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_point(alpha = .5)
+  geom_point()+ 
+  scale_alpha_manual(values=c(1,0.05,1))
 
 # not useful
-g2 = ggplot(db %>% filter(FaultCodeType != "Other"),
+g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
        aes(x=Generator_RPM,
            y=Active_Power,
            color = FaultCodeType,
-           label = ifelse(FaultCodeType =="Critical", Discription, "")))+
+           alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Genorator RPM")+
   ylab("Active Power")+
+  scale_x_continuous(limits = c(500, 1400))+
   theme_bw()+
-  geom_text()+
-  scale_color_brewer(palette = "Dark2")+
+  scale_colour_manual(values = c("#DC267F", "#FFB000"))+
+  scale_alpha_manual(values=c(1,0.05))+
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
-
 
 grid.arrange(g1, g2, heights=c(3,3))
 

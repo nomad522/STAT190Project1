@@ -472,8 +472,9 @@ difflib_scores <- get_score(from_vec2, difflb_matches)
 fuzzy_list <- data.frame(from_vec, difflb_matches)
 names(fuzzy_list) <- c("Order_Info", "Discription")
 
-# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and aproximate time. 
+# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
 workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
+
 
 
 ```

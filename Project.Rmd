@@ -23,6 +23,16 @@ library(ggcorrplot)
 library(gridExtra)
 library(tidyr)
 library(ggplot2)
+library(RColorBrewer)
+library(reticulate)
+library(fuzzywuzzyR)
+
+
+
+# python modules
+DIFFLIB <- reticulate::import("difflib")
+POLYFUZZ <- reticulate::import("polyfuzz") # will need to install package in python 
+
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
 
@@ -420,6 +430,52 @@ for (i in 1:nrow(fully_joined)){
   ){fully_joined$FaultCodeType[i] = "Warining"}
   else {fully_joined$FaultCodeType[i] = "Other"}
 })
+
+```
+
+
+```{r fuzzy join work order}
+# fuzzy join workorder and fully_joined
+
+unique(workorder$location_id)
+workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
+                        max = max(wo_start_date))
+# because we can see that we only have work orders from 2020-06-01 to 2022-01-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
+
+joined_subset <- fully_joined[fully_joined$Timestamp < "2022-01-31",]
+
+
+# Defining the two vectors we will be joining from a match. 
+# from the work order info column we will find the most closely related fault code description
+to_vec <- unique(joined_subset$Discription)
+from_vec <- unique(workorder$Order_Info)
+# removing the first 6 characters in hopes of better fuzzy matching
+from_vec2 <- substr(from_vec, 6,nchar(from_vec))
+
+get_best_matches <- function(from_vec2,to_vec) {
+  
+  get_best_matches <- function(from_string, to_vec){
+    return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
+  }
+    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
+  }
+difflb_matches <- get_best_matches(from_vec2, to_vec)
+
+get_score <- function(string1, string2) {
+  return(SequenceMatcher$new(from_vec2[1],difflb_matches[1])$ratio())
+}
+
+get_score <- Vectorize(get_score)
+
+difflib_scores <- get_score(from_vec2, difflb_matches)
+
+fuzzy_list <- data.frame(from_vec, difflb_matches)
+names(fuzzy_list) <- c("Order_Info", "Discription")
+
+# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and aproximate time. 
+workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
+
+
 ```
 
 ```{r output file}
@@ -457,7 +513,7 @@ db <- read.csv("Data/final_data-v3.csv")
 db2 = db[complete.cases(db[,5:12]),]
 
 numeric <- dplyr::select_if(db, is.numeric)
-numeric <- subset(numeric)
+numeric <- subset(numeric, select =-c(FaultCode))
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")
@@ -470,15 +526,39 @@ ggcorrplot(r) + labs(title = "Correlation matrix")
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
+display.brewer.all(colorblindFriendly = TRUE)
 
-ggplot(db,
-       aes(x=Generator_RPM,
+
+
+g1 = ggplot(db,
+       aes(x=Generator_RPM ,
            y=Active_Power,
            color = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Genorator RPM")+
   ylab("Active Power")+
+  theme_bw()+
+  scale_color_brewer(palette = "Dark2")+
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
+
+# not useful
+g2 = ggplot(db %>% filter(FaultCodeType != "Other"),
+       aes(x=Generator_RPM,
+           y=Active_Power,
+           color = FaultCodeType,
+           label = ifelse(FaultCodeType =="Critical", Discription, "")))+
+  ggtitle("Active Power Vs Generator RPM")+
+  xlab("Genorator RPM")+
+  ylab("Active Power")+
+  theme_bw()+
+  geom_text()+
+  scale_color_brewer(palette = "Dark2")+
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
+  geom_point()
+
+
+grid.arrange(g1, g2, ncol=1)
 
 ggplot(db,
        aes(x=Windspeed,

@@ -26,12 +26,15 @@ library(ggplot2)
 library(RColorBrewer)
 library(reticulate)
 library(fuzzywuzzyR)
+library(plotly)
+library(GGally)
 
 
 
 # python modules
+# for my mac
 DIFFLIB <- reticulate::import("difflib")
-POLYFUZZ <- reticulate::import("polyfuzz") # will need to install package in python 
+POLYFUZZ <- reticulate::import("polyfuzz") # will need to install package in python (use reticulated python environment to pip3 install, rstudio terminal) 
 
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
@@ -462,17 +465,17 @@ get_best_matches <- function(from_vec2,to_vec) {
   }
     unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
   }
-difflb_matches <- get_best_matches(from_vec2, to_vec)
+difflib_matches <- get_best_matches(from_vec2, to_vec)
 
 get_score <- function(string1, string2) {
-  return(SequenceMatcher$new(from_vec2[1],difflb_matches[1])$ratio())
+  return(SequenceMatcher$new(from_vec2[1],difflib_matches[1])$ratio())
 }
 
 get_score <- Vectorize(get_score)
 
-difflib_scores <- get_score(from_vec2, difflb_matches)
+difflib_scores <- get_score(from_vec2, difflib_matches)
 
-fuzzy_list <- data.frame(from_vec, difflb_matches)
+fuzzy_list <- data.frame(from_vec, difflib_matches)
 names(fuzzy_list) <- c("Order_Info", "Discription")
 
 # joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
@@ -530,16 +533,36 @@ numeric <- subset(numeric, select =-c(FaultCode))
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")
+
+
+scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
+# crash monster
+# ggplotly(scatter_matrix)
+
 #Notes:
 # We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .93.
 # We can see that Active Power is also directly related to the Generator RPM. Which seems right.
 # We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power
 
+
+
+```
+
+```{r, scatterplotmatrix}
+sns <- import('seaborn')
+plt <- import('matplotlib.pyplot')
+pd <- import('pandas')
+
+data = pd$read_csv("Data/final_data-v3.csv")
+
+sns$pairplot(data)
+plt$show()
+
 ```
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
-display.brewer.all(colorblindFriendly = TRUE)
+
 
 g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
        aes(x=Generator_RPM ,
@@ -556,7 +579,6 @@ g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
   geom_point()+ 
   scale_alpha_manual(values=c(1,0.05,1))
 
-# not useful
 g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
        aes(x=Generator_RPM,
            y=Active_Power,
@@ -572,23 +594,26 @@ g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
 
-grid.arrange(g1, g2, heights=c(3,3))
-
-ggplot(db,
-       aes(x=Windspeed,
-           y=Hydraulic_Pressure))+
-  ggtitle("Wind Speed Vs Hydraulic Pressure")+
-  xlab("Wind Speed")+
-  ylab("Hydraulic Pressure")+
-  geom_point()
-
-ggplot(db2,
-       aes(x=Windspeed,
-           y=Active_Power))+
-  ggtitle("Wind Speed Vs Active Power")+
-  xlab("Wind Speed")+
+g3 = ggplot(db %>%arrange(desc(FaultCodeType)),
+       aes(x=Timestamp,
+           y=Active_Power,
+           color = FaultCodeType,
+           alpha = FaultCodeType))+
+  ggtitle("Active Power")+
+  xlab("Date")+
   ylab("Active Power")+
-  geom_point()
+  scale_x_continuous(limits = c(500, 1400))+
+  theme_bw()+
+  scale_colour_manual(values = c("#DC267F", "#648FFF", "#FFB000"))+
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
+  geom_point()+ 
+  scale_alpha_manual(values=c(1,0.05,1))
+
+
+
+grid.arrange(g1, g2)
+
+
 
 
 

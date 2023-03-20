@@ -548,15 +548,15 @@ scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
 
 ```
 
-```{r, scatterplotmatrix}
-sns <- import('seaborn')
-plt <- import('matplotlib.pyplot')
-pd <- import('pandas')
+```{python, scatterplotmatrix}
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
 
-data = pd$read_csv("Data/final_data-v3.csv")
+data = pd.read_csv("Data/final_data-v3.csv")
 
-sns$pairplot(data)
-plt$show()
+sns.pairplot(data)
+plt.show()
 
 ```
 

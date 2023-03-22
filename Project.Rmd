@@ -441,7 +441,27 @@ for (i in 1:nrow(fully_joined)){
   else {fully_joined$FaultCodeType[i] = "Other"}
 })
 
+# Save aggregated multivariate fault code data set so we don't have to rerun
+write.csv(fully_joined, "final_data-v3.csv", row.names=FALSE)
 ```
+
+#Read in aggregated multivariate fault code data set
+fully_joined <- read.csv("final_data-v3.csv")
+View(fully_joined)
+
+#Convert date time from char to date time 
+fully_joined$DateTime <- ymd_hms(fully_joined$DateTime)
+fully_joined$round_date <- ymd_hms(fully_joined$round_date)
+str(fully_joined)
+
+#Delete all duplicate rows
+fully_joined <- fully_joined[!duplicated(fully_joined[,8:9]),]
+View(fully_joined)
+
+#Order based on Turbine and date
+fully_joined <- fully_joined %>% arrange(location_id, round_date)
+View(fully_joined)
+
 
 
 ```{r fuzzy join work order, eval=FALSE}

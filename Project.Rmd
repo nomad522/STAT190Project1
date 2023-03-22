@@ -31,10 +31,16 @@ library(GGally)
 
 
 
-# python modules
-# for my mac
+# In reticulate's python environment install (from the r terminal):
+# numpy
+# polyfuzz
+# seaborn
+# pandas
+# matplotlib
+
+# python modules 
 DIFFLIB <- reticulate::import("difflib")
-POLYFUZZ <- reticulate::import("polyfuzz") # will need to install package in python (use reticulated python environment to pip3 install, rstudio terminal) 
+POLYFUZZ <- reticulate::import("polyfuzz")
 
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\

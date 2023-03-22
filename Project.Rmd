@@ -446,7 +446,7 @@ write.csv(fully_joined, "final_data-v3.csv", row.names=FALSE)
 ```
 
 #Read in aggregated multivariate fault code data set
-fully_joined <- read.csv("final_data-v3.csv")
+fully_joined <- read.csv("Data/final_data-v3.csv")
 View(fully_joined)
 
 #Convert timestamp from char to date time 

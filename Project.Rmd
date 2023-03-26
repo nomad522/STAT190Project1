@@ -521,7 +521,8 @@ fully_joinedr <- full_join(workorder, fully_joined, by=c('location_id'))
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
 # Output Dataset not imputed
-write.csv(fully_joined, "final_data-v4.csv", row.names=FALSE)
+path_out = 'Data\\'
+write.csv(fully_joined,paste(path_out,'final_data-v3.csv',sep = ''),row.names=FALSE)
 
 #Impute Dataset
 imputed_dataset = fully_joined

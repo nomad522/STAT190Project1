@@ -508,12 +508,23 @@ workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
 #removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
 workorder <- subset(workorder, select = -c(is_failure, cause_code))
 
-####### need to figure out how we merge it by time. !!!!!!!!!!!!!!!!! 
 
-names(workorder) <- c("Timestamp", "Discription")
+####### work in progress
+
+path_out = 'Data\\'
+write.csv(workorder,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.names=FALSE)
+workorder <- read.csv("Data/fuzzy_workorder.csv")
+# convert dates from numeric to date format
+workorder$wo_start_date <- ymd(workorder$wo_start_date)
+workorder$wo_start_date <- format(workorder$wo_start_date,"%Y-%m-%d %H:%M:%S")
+
+workorder$wo_finish_date <- ymd(workorder$wo_finish_date)
 
 
-fully_joinedr <- full_join(workorder, fully_joined, by=c('location_id'))
+
+
+
+workorder$round_date <- lubridate::round_date(workorder$wo_start_date, "15 minutes")
 
 ```
 

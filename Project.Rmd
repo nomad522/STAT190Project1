@@ -509,7 +509,7 @@ for (i in 1:nrow(fully_joined)){
            fully_joined$Description[i] == "No Lubrication, Yaw System"||
            fully_joined$Description[i] == "Lmu Sensor Error"||
            fully_joined$Description[i] == "Srsg Activated"
-  ){fully_joined$FaultCodeType[i] = "Warining"}
+  ){fully_joined$FaultCodeType[i] = "Warning"}
   else {fully_joined$FaultCodeType[i] = "Other"}
 })
 

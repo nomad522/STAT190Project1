@@ -356,7 +356,7 @@ fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
 fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Type, Date))
 
 # Renaming columns
-names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
+names(fully_joined) <- c("Turbine", "FaultCode","Description", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
 
 
 
@@ -377,7 +377,7 @@ joined_subset <- fully_joined[fully_joined$Timestamp < "2022-01-31",]
 
 # Defining the two vectors we will be joining from a match. 
 # from the work order info column we will find the most closely related fault code description
-to_vec <- unique(joined_subset$Discription)
+to_vec <- unique(joined_subset$Description)
 from_vec <- unique(workorder$Order_Info)
 # removing the first 6 characters in hopes of better fuzzy matching
 from_vec2 <- substr(from_vec, 6,nchar(from_vec))
@@ -400,9 +400,9 @@ get_score <- Vectorize(get_score)
 difflib_scores <- get_score(from_vec2, difflib_matches)
 
 fuzzy_list <- data.frame(from_vec, difflib_matches)
-names(fuzzy_list) <- c("Order_Info", "Discription")
+names(fuzzy_list) <- c("Order_Info", "Description")
 
-# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
+# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Description, location_id, and approximate time. 
 workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
 #removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
 workorder <- subset(workorder, select = -c(is_failure, cause_code))
@@ -418,7 +418,7 @@ fully_joined$Date <- ymd(fully_joined$Date)
 # full joining fully_joined and work order. joining by Turbine, Description(from fault code) and Date (not hms)
 # Note: wo_start_date becomes Date. 
 fully_joined = full_join(fully_joined, workorder, by = c("Turbine" = "location_id",
-                                                            "Discription" = "Discription", 
+                                                            "Description" = "Description", 
                                                             "Date" = "wo_start_date"))
 
 
@@ -435,7 +435,7 @@ test = fully_joined_wo[complete.cases(fully_joined_wo[,16]),]
 ```{r fault code discriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
-unique(fully_joined$Discription)
+unique(fully_joined$Description)
 # If the Turbine stops and needs work, it's critical
 # If the fault code is just a warning its a warning... something is wrong but still running
 # else it is unknown, manual stopped or stopped for some other reason
@@ -443,72 +443,72 @@ unique(fully_joined$Discription)
 fully_joined$FaultCodeType = "Code Type"
 suppressWarnings(
 for (i in 1:nrow(fully_joined)){
-  if (is.na(fully_joined$Discription[i])){fully_joined$FaultCodeType[i] = "Other"}
-  else if (fully_joined$Discription[i] == "Gear Oil Temperature High"||
-      fully_joined$Discription[i] == "Gear Oil Pressure Too High/Low"||
-      fully_joined$Discription[i] == "Converter Tripped, Auto Start" ||
-      fully_joined$Discription[i] == "Mainbreaker Cut Out"||
-      fully_joined$Discription[i] == "Gear Oil Pump/Blower Superheated"||
-      fully_joined$Discription[i] == "Ups Bypass Error"||
-      fully_joined$Discription[i] == "Ups-Failure"||  
-      fully_joined$Discription[i] == "Slip Ring Error"||
-      fully_joined$Discription[i] == "Osc. In Gen Speed, Cons. Lim"||
-      fully_joined$Discription[i] == "Ims-Gen Gearbearing Temp Too High"||
-      fully_joined$Discription[i] == "Ups-Failure"||
-      fully_joined$Discription[i] == "Hs-Gen Gearbearing Superheated"||
-      fully_joined$Discription[i] == "Grid Filter Current Overload"||
-      fully_joined$Discription[i] == "Gearoil Level Too Low"||
-      fully_joined$Discription[i] == "Rpm Sensor Error"||
-      fully_joined$Discription[i] == "Srsg Activated"||
-      fully_joined$Discription[i] == "Lms-Rot Gearbearing Temp Too High"
+  if (is.na(fully_joined$Description[i])){fully_joined$FaultCodeType[i] = "Other"}
+  else if (fully_joined$Description[i] == "Gear Oil Temperature High"||
+      fully_joined$Description[i] == "Gear Oil Pressure Too High/Low"||
+      fully_joined$Description[i] == "Converter Tripped, Auto Start" ||
+      fully_joined$Description[i] == "Mainbreaker Cut Out"||
+      fully_joined$Description[i] == "Gear Oil Pump/Blower Superheated"||
+      fully_joined$Description[i] == "Ups Bypass Error"||
+      fully_joined$Description[i] == "Ups-Failure"||  
+      fully_joined$Description[i] == "Slip Ring Error"||
+      fully_joined$Description[i] == "Osc. In Gen Speed, Cons. Lim"||
+      fully_joined$Description[i] == "Ims-Gen Gearbearing Temp Too High"||
+      fully_joined$Description[i] == "Ups-Failure"||
+      fully_joined$Description[i] == "Hs-Gen Gearbearing Superheated"||
+      fully_joined$Description[i] == "Grid Filter Current Overload"||
+      fully_joined$Description[i] == "Gearoil Level Too Low"||
+      fully_joined$Description[i] == "Rpm Sensor Error"||
+      fully_joined$Description[i] == "Srsg Activated"||
+      fully_joined$Description[i] == "Lms-Rot Gearbearing Temp Too High"
       ){fully_joined$FaultCodeType[i] = "Critical"}
-  else if (fully_joined$Discription[i] == "Gear Oil Temperature Warning"||
-           fully_joined$Discription[i] == "Converter Trip, External"||
-           fully_joined$Discription[i] == "Converter Tripped, General"||
-           fully_joined$Discription[i] == "Main Bearing Temp Too High"||
-           fully_joined$Discription[i] == "Generator High Speed Waiting"||
-           fully_joined$Discription[i] == "Inv.(Tow) Cool Water Pres. Warning"||
-           fully_joined$Discription[i] == "Inv.(Tow) Cool Water Pres. Low"||
-           fully_joined$Discription[i] == "Tower Conv. Cooling Water Low"||
-           fully_joined$Discription[i] == "Hydraulic Filter Warning"||
-           fully_joined$Discription[i] == "Gear Oil Temp Sensor Warning"||
-           fully_joined$Discription[i] == "Main Bearing Temp Warning"||
-           fully_joined$Discription[i] == "Lmu Alarm Overspeed"||
-           fully_joined$Discription[i] == "Brake Pressure Too Low"||
-           fully_joined$Discription[i] == "Inverter Temperature High"||
-           fully_joined$Discription[i] == "Grdinv: 38 D1 Volt High"||
-           fully_joined$Discription[i] == "Grease Level Low, Gen Bearings"||
-           fully_joined$Discription[i] == "Grdinv: 38 D1 Volt High"||
-           fully_joined$Discription[i] == "Yaw Limit Sensor Activated"||
-           fully_joined$Discription[i] == "No Lubrication, Gen Bearings"||
-           fully_joined$Discription[i] == "Brake (Gen) Temperature Error"||
-           fully_joined$Discription[i] == "Dc Voltage Low"||
-           fully_joined$Discription[i] == "Grease Level Low, Hub"||
-           fully_joined$Discription[i] == "Geninv: 38 D1 Volt High"||
-           fully_joined$Discription[i] == "Gearoil Level Too Low"||
-           fully_joined$Discription[i] == "Geninv: 56 D3 Volt High"||
-           fully_joined$Discription[i] == "Inv. Cooling Water Temp Warning"||
-           fully_joined$Discription[i] == "Delta Module Temperature High"||
-           fully_joined$Discription[i] == "Gear Oil Temp Sensor Warning"||
-           fully_joined$Discription[i] == "Gear Bearing Hs-Gen Sensor Warning"||
-           fully_joined$Discription[i] == "Gear Bearing Hs-Rot Sensor Warning"||
-           fully_joined$Discription[i] == "Gear Bearing Ims-Gen Sensor Warning"||
-           fully_joined$Discription[i] == "Gear Bearing Ims-Rot Sensor Warning"||
-           fully_joined$Discription[i] == "Hs-Rot Gearbearing Temp Warning"||
-           fully_joined$Discription[i] == "Fuse Blown, Grid Filter"||
-           fully_joined$Discription[i] == "Hs-Gen Gearbearing Temp Warning"||
-           fully_joined$Discription[i] == "High Upper Voltage Exceeded"||
-           fully_joined$Discription[i] == "Low Lower Voltage Exceeded"||
-           fully_joined$Discription[i] == "UPS Battery Low, Warning"||
-           fully_joined$Discription[i] == "Ups Battery Low"||
-           fully_joined$Discription[i] == "Dc Fuse Blown"||
-           fully_joined$Discription[i] == "Gear Oil Temperature Low"||
-           fully_joined$Discription[i] == "Hydraulic Oil Too Cold"||
-           fully_joined$Discription[i] == "Blown Yaw Brake Fuse"||
-           fully_joined$Discription[i] == "Too Many Slip Ring Errors"||
-           fully_joined$Discription[i] == "No Lubrication, Yaw System"||
-           fully_joined$Discription[i] == "Lmu Sensor Error"||
-           fully_joined$Discription[i] == "Srsg Activated"
+  else if (fully_joined$Description[i] == "Gear Oil Temperature Warning"||
+           fully_joined$Description[i] == "Converter Trip, External"||
+           fully_joined$Description[i] == "Converter Tripped, General"||
+           fully_joined$Description[i] == "Main Bearing Temp Too High"||
+           fully_joined$Description[i] == "Generator High Speed Waiting"||
+           fully_joined$Description[i] == "Inv.(Tow) Cool Water Pres. Warning"||
+           fully_joined$Description[i] == "Inv.(Tow) Cool Water Pres. Low"||
+           fully_joined$Description[i] == "Tower Conv. Cooling Water Low"||
+           fully_joined$Description[i] == "Hydraulic Filter Warning"||
+           fully_joined$Description[i] == "Gear Oil Temp Sensor Warning"||
+           fully_joined$Description[i] == "Main Bearing Temp Warning"||
+           fully_joined$Description[i] == "Lmu Alarm Overspeed"||
+           fully_joined$Description[i] == "Brake Pressure Too Low"||
+           fully_joined$Description[i] == "Inverter Temperature High"||
+           fully_joined$Description[i] == "Grdinv: 38 D1 Volt High"||
+           fully_joined$Description[i] == "Grease Level Low, Gen Bearings"||
+           fully_joined$Description[i] == "Grdinv: 38 D1 Volt High"||
+           fully_joined$Description[i] == "Yaw Limit Sensor Activated"||
+           fully_joined$Description[i] == "No Lubrication, Gen Bearings"||
+           fully_joined$Description[i] == "Brake (Gen) Temperature Error"||
+           fully_joined$Description[i] == "Dc Voltage Low"||
+           fully_joined$Description[i] == "Grease Level Low, Hub"||
+           fully_joined$Description[i] == "Geninv: 38 D1 Volt High"||
+           fully_joined$Description[i] == "Gearoil Level Too Low"||
+           fully_joined$Description[i] == "Geninv: 56 D3 Volt High"||
+           fully_joined$Description[i] == "Inv. Cooling Water Temp Warning"||
+           fully_joined$Description[i] == "Delta Module Temperature High"||
+           fully_joined$Description[i] == "Gear Oil Temp Sensor Warning"||
+           fully_joined$Description[i] == "Gear Bearing Hs-Gen Sensor Warning"||
+           fully_joined$Description[i] == "Gear Bearing Hs-Rot Sensor Warning"||
+           fully_joined$Description[i] == "Gear Bearing Ims-Gen Sensor Warning"||
+           fully_joined$Description[i] == "Gear Bearing Ims-Rot Sensor Warning"||
+           fully_joined$Description[i] == "Hs-Rot Gearbearing Temp Warning"||
+           fully_joined$Description[i] == "Fuse Blown, Grid Filter"||
+           fully_joined$Description[i] == "Hs-Gen Gearbearing Temp Warning"||
+           fully_joined$Description[i] == "High Upper Voltage Exceeded"||
+           fully_joined$Description[i] == "Low Lower Voltage Exceeded"||
+           fully_joined$Description[i] == "UPS Battery Low, Warning"||
+           fully_joined$Description[i] == "Ups Battery Low"||
+           fully_joined$Description[i] == "Dc Fuse Blown"||
+           fully_joined$Description[i] == "Gear Oil Temperature Low"||
+           fully_joined$Description[i] == "Hydraulic Oil Too Cold"||
+           fully_joined$Description[i] == "Blown Yaw Brake Fuse"||
+           fully_joined$Description[i] == "Too Many Slip Ring Errors"||
+           fully_joined$Description[i] == "No Lubrication, Yaw System"||
+           fully_joined$Description[i] == "Lmu Sensor Error"||
+           fully_joined$Description[i] == "Srsg Activated"
   ){fully_joined$FaultCodeType[i] = "Warining"}
   else {fully_joined$FaultCodeType[i] = "Other"}
 })

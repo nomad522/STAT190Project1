@@ -558,7 +558,7 @@ db <- read.csv("Data/final_data-v4.csv")
 # after reading in, must convert time date again.
 db$Timestamp <- ymd_hms(db$Timestamp)
 db$Date <- ymd(db$Date)
-db$wo_finish_date <- ymd_hms(db$wo_finish_date)
+db$wo_finish_date <- ymd(db$wo_finish_date)
 
 # There are only 200 completed sensor metrics for the data set.
 db2 = db[complete.cases(db[,5:12]),]

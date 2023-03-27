@@ -529,7 +529,7 @@ path_out = 'Data//'
 write.csv(fully_joined,paste(path_out,'final_data-v4.csv',sep = ''),row.names=FALSE)
 
 #Impute Dataset
-imputed_dataset = fully_joined_wo
+imputed_dataset = fully_joined
 #Replace all NA values in numeric columns with average column value.
 imputed_dataset$Bearing_Temp[is.na(imputed_dataset$Bearing_Temp)] <- mean(imputed_dataset$Bearing_Temp,na.rm=TRUE)
 imputed_dataset$Windspeed[is.na(imputed_dataset$Windspeed)] <- mean(imputed_dataset$Windspeed,na.rm=TRUE)

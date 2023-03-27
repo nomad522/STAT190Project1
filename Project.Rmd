@@ -30,7 +30,6 @@ library(plotly)
 library(GGally)
 
 
-
 # In reticulate's python environment install (from the r terminal):
 # numpy
 # polyfuzz
@@ -41,6 +40,7 @@ library(GGally)
 # python modules 
 DIFFLIB <- reticulate::import("difflib")
 POLYFUZZ <- reticulate::import("polyfuzz")
+
 
 ```
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/ and extracted into their respective sub directories as stated:\
@@ -106,7 +106,7 @@ workorder = wo %>%
     group_by(OrderNo) %>% 
     fill(component_type, .direction = 'up') %>% 
     fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
-# compared to this which just keeps distinct OrderNo regaurdless of other variables, causing us to lose most of the component_type 
+# compared to this which just keeps distinct OrderNo regardless of other variables, causing us to lose most of the component_type 
 # test = distinct(wo, OrderNo, .keep_all = TRUE)
 
 str(workorder)
@@ -260,7 +260,7 @@ names(hydraulic) <- c("location_id", "DateTime", "Date", "Pressure", "Hydraulic 
 hydraulic <- hydraulic %>% arrange(location_id, DateTime) %>% distinct()
 #Adding a variable round_date to round times to nearest 15 minute intervals
 hydraulic$round_date <- lubridate::round_date(hydraulic$DateTime, "15 minutes")
-#adding mean rpm of the 15 minute intervals and dropping columns
+#adding hydrolic pressure to 15 minute intervals and dropping columns
 hydraulic <- hydraulic %>% group_by(location_id, round_date) %>% summarise(mean_pressure = mean(Pressure), .groups = 'drop') %>% as.data.frame()
 
 
@@ -358,6 +358,78 @@ fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Typ
 # Renaming columns
 names(fully_joined) <- c("Turbine", "FaultCode","Discription", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
 
+
+
+```
+
+```{r fuzzy join work order, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
+# fuzzy join workorder and fully_joined
+
+unique(workorder$location_id)
+workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
+                        max = max(wo_start_date))
+# because we can see that we only have work orders from 2020-06-01 to 2022-01-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
+
+joined_subset <- fully_joined[fully_joined$Timestamp < "2022-01-31",]
+
+
+# Defining the two vectors we will be joining from a match. 
+# from the work order info column we will find the most closely related fault code description
+to_vec <- unique(joined_subset$Discription)
+from_vec <- unique(workorder$Order_Info)
+# removing the first 6 characters in hopes of better fuzzy matching
+from_vec2 <- substr(from_vec, 6,nchar(from_vec))
+
+get_best_matches <- function(from_vec2,to_vec) {
+  
+  get_best_matches <- function(from_string, to_vec){
+    return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
+  }
+    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
+  }
+difflib_matches <- get_best_matches(from_vec2, to_vec)
+
+get_score <- function(string1, string2) {
+  return(SequenceMatcher$new(from_vec2[1],difflib_matches[1])$ratio())
+}
+
+get_score <- Vectorize(get_score)
+
+difflib_scores <- get_score(from_vec2, difflib_matches)
+
+fuzzy_list <- data.frame(from_vec, difflib_matches)
+names(fuzzy_list) <- c("Order_Info", "Discription")
+
+# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
+workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
+#removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
+workorder <- subset(workorder, select = -c(is_failure, cause_code))
+
+# convert dates from numeric to date format
+workorder$wo_start_date <- ymd(workorder$wo_start_date)
+
+# Removing the hms part from Timestamp and signing it to a variable Data to use as composite key for joining to the workorder.
+fully_joined$Date = format(fully_joined$Timestamp, "%Y-%m-%d")
+fully_joined$Date <- ymd(fully_joined$Date)
+
+
+# full joining fully_joined and work order. joining by Turbine, Description(from fault code) and Date (not hms)
+# Note: wo_start_date becomes Date. 
+fully_joined = full_join(fully_joined, workorder, by = c("Turbine" = "location_id",
+                                                            "Discription" = "Discription", 
+                                                            "Date" = "wo_start_date"))
+
+
+# looking at a subset of the join of the fully_joined and workorder frames for observations that have workorders (OrderNo)
+# Seems right. The number of workorders after deleting duplicates was 139. merging with the sensory data by the 24 day period
+# results in 172 obs as there can be multiple faultcodes and multiple time intervals when a WO is made. Unfortunately there is 
+# not many sensory data for when a workorder is made.
+test = fully_joined_wo[complete.cases(fully_joined_wo[,16]),]
+
+
+
 ```
 
 ```{r fault code discriptions, eval=FALSE}
@@ -441,90 +513,11 @@ for (i in 1:nrow(fully_joined)){
   else {fully_joined$FaultCodeType[i] = "Other"}
 })
 
-# Save aggregated multivariate fault code data set so we don't have to rerun
-write.csv(fully_joined, "final_data-v3.csv", row.names=FALSE)
-```
+unique(fully_joined$FaultCodeType)
 
-#Read in aggregated multivariate fault code data set
-fully_joined <- read.csv("Data/final_data-v3.csv")
-View(fully_joined)
+#Keeping only unique rows, for each time period and turbine there can be multiple fault codes, but exactly the same sensory data.
+fully_joined <- fully_joined[!duplicated(fully_joined[,1:12]),]
 
-#Convert timestamp from char to date time 
-fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
-str(fully_joined)
-
-#Delete all duplicate rows
-fully_joined <- fully_joined[!duplicated(fully_joined[,4:5]),]
-View(fully_joined)
-
-#Order based on Turbine and date
-fully_joined <- fully_joined %>% arrange(Turbine, Timestamp)
-View(fully_joined)
-
-
-
-```{r fuzzy join work order, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
-
-# fuzzy join workorder and fully_joined
-
-unique(workorder$location_id)
-workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
-                        max = max(wo_start_date))
-# because we can see that we only have work orders from 2020-06-01 to 2022-01-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
-
-joined_subset <- fully_joined[fully_joined$Timestamp < "2022-01-31",]
-
-
-# Defining the two vectors we will be joining from a match. 
-# from the work order info column we will find the most closely related fault code description
-to_vec <- unique(joined_subset$Discription)
-from_vec <- unique(workorder$Order_Info)
-# removing the first 6 characters in hopes of better fuzzy matching
-from_vec2 <- substr(from_vec, 6,nchar(from_vec))
-
-get_best_matches <- function(from_vec2,to_vec) {
-  
-  get_best_matches <- function(from_string, to_vec){
-    return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
-  }
-    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
-  }
-difflib_matches <- get_best_matches(from_vec2, to_vec)
-
-get_score <- function(string1, string2) {
-  return(SequenceMatcher$new(from_vec2[1],difflib_matches[1])$ratio())
-}
-
-get_score <- Vectorize(get_score)
-
-difflib_scores <- get_score(from_vec2, difflib_matches)
-
-fuzzy_list <- data.frame(from_vec, difflib_matches)
-names(fuzzy_list) <- c("Order_Info", "Discription")
-
-# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Discription, location_id, and approximate time. 
-workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
-#removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
-workorder <- subset(workorder, select = -c(is_failure, cause_code))
-
-
-####### work in progress
-
-path_out = 'Data\\'
-write.csv(workorder,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.names=FALSE)
-workorder <- read.csv("Data/fuzzy_workorder.csv")
-# convert dates from numeric to date format
-workorder$wo_start_date <- ymd(workorder$wo_start_date)
-workorder$wo_start_date <- format(workorder$wo_start_date,"%Y-%m-%d %H:%M:%S")
-
-workorder$wo_finish_date <- ymd(workorder$wo_finish_date)
-
-
-
-
-
-workorder$round_date <- lubridate::round_date(workorder$wo_start_date, "15 minutes")
 
 ```
 
@@ -532,11 +525,11 @@ workorder$round_date <- lubridate::round_date(workorder$wo_start_date, "15 minut
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
 # Output Dataset not imputed
-path_out = 'Data\\'
-write.csv(fully_joined,paste(path_out,'final_data-v3.csv',sep = ''),row.names=FALSE)
+path_out = 'Data//'
+write.csv(fully_joined,paste(path_out,'final_data-v4.csv',sep = ''),row.names=FALSE)
 
 #Impute Dataset
-imputed_dataset = fully_joined
+imputed_dataset = fully_joined_wo
 #Replace all NA values in numeric columns with average column value.
 imputed_dataset$Bearing_Temp[is.na(imputed_dataset$Bearing_Temp)] <- mean(imputed_dataset$Bearing_Temp,na.rm=TRUE)
 imputed_dataset$Windspeed[is.na(imputed_dataset$Windspeed)] <- mean(imputed_dataset$Windspeed,na.rm=TRUE)
@@ -551,8 +544,8 @@ imputed_dataset$Ambient_Temp[is.na(imputed_dataset$Ambient_Temp)] <- mean(impute
 imputed_dataset$FaultOccurred <-with(imputed_dataset, ifelse(is.na(db$FaultCode),"Yes","No"))
 as.factor(imputed_dataset$FaultOccurred)
 
-# Output Dataset impouted
-write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
+# Output Dataset imputed
+write.csv(imputed_dataset,paste(path_out,'imputed_final_data.csv',sep = ''),row.names=FALSE)
 
 ```
 
@@ -560,13 +553,18 @@ write.csv(imputed_dataset, "imputed_final_data.csv", row.names=FALSE)
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/final_data-v3.csv")
+db <- read.csv("Data/final_data-v4.csv")
 
-# There are only 311 completed sensor metrics for the data set.
+# after reading in, must convert time date again.
+db$Timestamp <- ymd_hms(db$Timestamp)
+db$Date <- ymd(db$Date)
+db$wo_finish_date <- ymd_hms(db$wo_finish_date)
+
+# There are only 200 completed sensor metrics for the data set.
 db2 = db[complete.cases(db[,5:12]),]
 
 numeric <- dplyr::select_if(db, is.numeric)
-numeric <- subset(numeric, select =-c(FaultCode))
+numeric <- subset(numeric, select =-c(FaultCode, OrderNo)) # These are technically a categorical variable
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")
@@ -577,8 +575,8 @@ scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
 # ggplotly(scatter_matrix)
 
 #Notes:
-# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .93.
-# We can see that Active Power is also directly related to the Generator RPM. Which seems right.
+# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .92.
+# We can see that Active Power is also directly related to the Generator RPM at .94. Which seems right.
 # We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power
 
 
@@ -590,15 +588,16 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = pd.read_csv("Data/final_data-v3.csv")
+data = pd.read_csv("Data/final_data-v4.csv")
+d2 = data.drop(columns =['FaultCode', 'OrderNo']) # these are Categorical 
 
-sns.pairplot(data)
-plt.show()
+# Seaborn scatterplot matrix
+sns.pairplot(d2)
 
 ```
 
 ## Multivariate
-```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center"}
+```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
 
 
 g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
@@ -652,8 +651,5 @@ grid.arrange(g1, g2)
 
 
 
-
-
 ```
-
 

@@ -2,8 +2,11 @@
 title: "Project 1"
 author: "Chris Cavan, Marshall Ndhlovu, Noah Maddio, Nathan Gottwals"
 date: "`r Sys.Date()`"
-output: html_document
-editor_options: 
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+editor_options:
   chunk_output_type: inline
 ---
 
@@ -28,7 +31,9 @@ library(reticulate)
 library(fuzzywuzzyR)
 library(plotly)
 library(GGally)
-
+library(imputeTS)
+library(randomForest)
+library(TSstudio)
 
 # In reticulate's python environment install (from the r terminal):
 # numpy
@@ -47,7 +52,7 @@ All r code and rmarkdown will be in the root directory with and all sensory data
 
 **Work order**
 
-+ Data/work order scrubbed.csv
++ Data/Work Order
   
 **Active Power**
 
@@ -57,9 +62,13 @@ All r code and rmarkdown will be in the root directory with and all sensory data
   
 + Data/Gearbox Bearing Temperature
   
-**Gearbox IMS Bearing**
+**Gearbox IMS Bearing 1**
   
-+ Data/Gearbox IMS Bearing
++ Data/Gearbox IMS Bearing 1
+  
+**Gearbox IMS Bearing 2**
+  
++ Data/Gearbox IMS Bearing 2
   
 **Gearbox Oil Temperature**
 
@@ -87,7 +96,25 @@ then aggregated by the average in 15 minute intervals. The data frames are then 
 
 
 #####workorder------------
-wo = read.csv("Data/work order scrubbed.csv")
+wo_files = list.files("Data/Work Order", pattern="*.csv")
+wo_list = list()
+for (i in 1:length(wo_files)) {
+  if (file.size(paste0("Data/Work Order/", wo_files[i])) >1){
+    wo_list = c(wo_list, wo_files[i])
+  }
+}
+
+for (i in 1:length(wo_files)) {
+  if (file.size(paste0("Data/Work Order/", wo_files[i])) >1){
+    wo_list = c(wo_list, wo_files[i])
+  }
+}
+wo = read.csv(paste0("Data/Work Order/", wo_list[1]), header = TRUE)
+for (i in 2:length(wo_list)){
+  new = read.csv(paste0("Data/Work Order/", wo_list[i]), header = TRUE)
+  wo = rbind(wo, new)
+}
+
 # work order exploration and data cleaning
 # cause_code all null
 #table(wo$cause_code)
@@ -161,17 +188,17 @@ bearing <- bearing %>% group_by(location_id, round_date) %>% summarise(mean_temp
 
 
 
-#### Gearbox IMS Bearing Temperature---------------- 
-ims_files = list.files("Data/Gearbox IMS Bearing", pattern="*.csv")
+#### Gearbox IMS Bearing  1 Temperature---------------- 
+ims_files = list.files("Data/Gearbox IMS Bearing 1", pattern="*.csv")
 ims_list = list()
 for (i in 1:length(ims_files)) {
-  if (file.size(paste0("Data/Gearbox IMS Bearing/", ims_files[i])) >1){
+  if (file.size(paste0("Data/Gearbox IMS Bearing 1/", ims_files[i])) >1){
     ims_list = c(ims_list, ims_files[i])
   }
 }
-ims = read.csv(paste0("Data/Gearbox IMS Bearing/", ims_list[1]), header = FALSE)
+ims = read.csv(paste0("Data/Gearbox IMS Bearing 1/", ims_list[1]), header = FALSE)
 for (i in 2:length(ims_list)){
-  new = read.csv(paste0("Data/Gearbox IMS Bearing/", ims_list[i]), header = FALSE)
+  new = read.csv(paste0("Data/Gearbox IMS Bearing 1/", ims_list[i]), header = FALSE)
   ims = rbind(ims, new)
 }
 #convert Datetime from char to date
@@ -184,6 +211,30 @@ ims <- ims %>% arrange(location_id, DateTime) %>% distinct()
 ims$round_date <- lubridate::round_date(ims$DateTime, "15 minutes")
 #adding mean ims bearing temp of the 15 minute intervals and dropping columns
 ims <- ims %>% group_by(location_id, round_date) %>% summarise(mean_ims = mean(Temperature), .groups = 'drop') %>% as.data.frame()
+
+#### Gearbox IMS Bearing  2 Temperature---------------- 
+ims_files2 = list.files("Data/Gearbox IMS Bearing 2", pattern="*.csv")
+ims_list2 = list()
+for (i in 1:length(ims_files2)) {
+  if (file.size(paste0("Data/Gearbox IMS Bearing 2/", ims_files2[i])) >1){
+    ims_list2 = c(ims_list2, ims_files2[i])
+  }
+}
+ims2 = read.csv(paste0("Data/Gearbox IMS Bearing 2/", ims_list2[1]), header = FALSE)
+for (i in 2:length(ims_list2)){
+  new = read.csv(paste0("Data/Gearbox IMS Bearing 2/", ims_list2[i]), header = FALSE)
+  ims2 = rbind(ims2, new)
+}
+#convert Datetime from char to date
+ims2$V2 <- ymd_hms(ims2$V2)
+#renaming column headers
+names(ims2) <- c("location_id", "DateTime", "Date", "Temperature", "ims_2")
+# Sorting data by turbine, then the DateTime. Then deleting rows with duplicate start times by turbine
+ims2 <- ims2 %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 15 minute intervals
+ims2$round_date <- lubridate::round_date(ims2$DateTime, "15 minutes")
+#adding mean ims bearing temp of the 15 minute intervals and dropping columns
+ims2 <- ims2 %>% group_by(location_id, round_date) %>% summarise(mean_ims2 = mean(Temperature), .groups = 'drop') %>% as.data.frame()
 
 
 
@@ -291,7 +342,7 @@ active <-active %>% group_by(location_id, round_date) %>% summarise(mean_power =
 
 
 
-#### Ambient Temperature-------------- Needs work*****
+#### Ambient Temperature-------------- 
 ambient_files = list.files("Data/ambient_temperature", pattern="*.csv")
 ambient_list = list()
 for (i in 1:length(ambient_files)) {
@@ -349,18 +400,36 @@ fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., rpm, c('location_id', 'round_date')) %>%
   full_join(., oil, c('location_id', 'round_date')) %>%
   full_join(., ims, c('location_id', 'round_date')) %>%
+  full_join(., ims2, c('location_id', 'round_date')) %>%
   full_join(., active, c('location_id', 'round_date'))%>%
   full_join(., ambient, by=c('location_id', 'round_date'))
 
-# Removing unused columns/duplicates
-fully_joined <- subset(fully_joined, select = -c(DateTime, Date, StatusCode, Type, Date))
+# Removing unused columns
+fully_joined <- subset(fully_joined, select = -c(DateTime, StatusCode)) # using round_date Note: we keep Date this time so we don't need to create it later for merging with # Work Orders
+#Note Date should be the just the ymd the same as round_date's ymd_hms, but since during aggregation something like 23:57 would be rounded to 00:00am of the next day,
+# but would have the previous date in Date and the next day's date in round_date. We will just fix that.
+fully_joined$Date = fully_joined$round_date
+fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
+
+# Keeping only unique rows (duplicates exist due to original time of the faultcode when not rounded)
+# could just remove duplicates after each sensory read in to maybe reduce join time.
+fully_joined <- fully_joined[!duplicated(fully_joined[,1:12]),]
 
 # Renaming columns
-names(fully_joined) <- c("Turbine", "FaultCode","Description", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS", "Active_Power", "Ambient_Temp")
+names(fully_joined) <- c("Turbine", "Date", "FaultCode", "Description","Type", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS_1", "Gearbox_IMS_2", "Active_Power", "Ambient_Temp")
 
+#save spot copy of data 
+path_out = 'Data//'
+write.csv(fully_joined,paste(path_out,'final_data-v5.csv',sep = ''),row.names=FALSE)
+
+# load save point
+fully_joined <- read.csv("Data/final_data-v5.csv")
+fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
+fully_joined$Date <- ymd(fully_joined$Date)
 
 
 ```
+
 
 ```{r fuzzy join work order, eval=FALSE}
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
@@ -370,9 +439,9 @@ names(fully_joined) <- c("Turbine", "FaultCode","Description", "Timestamp", "Bea
 unique(workorder$location_id)
 workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
                         max = max(wo_start_date))
-# because we can see that we only have work orders from 2020-06-01 to 2022-01-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
+# because we can see that we only have work orders from 2020-06-01 to 2022-08-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
 
-joined_subset <- fully_joined[fully_joined$Timestamp < "2022-01-31",]
+joined_subset <- fully_joined[fully_joined$Timestamp < "2022-09-01",]
 
 
 # Defining the two vectors we will be joining from a match. 
@@ -410,175 +479,187 @@ workorder <- subset(workorder, select = -c(is_failure, cause_code))
 # convert dates from numeric to date format
 workorder$wo_start_date <- ymd(workorder$wo_start_date)
 
-# Removing the hms part from Timestamp and signing it to a variable Data to use as composite key for joining to the workorder.
-fully_joined$Date = format(fully_joined$Timestamp, "%Y-%m-%d")
-fully_joined$Date <- ymd(fully_joined$Date)
+# Dtate as a date format
+fully_joined$wo_start_date <- ymd(fully_joined$Date)
 
 
 # full joining fully_joined and work order. joining by Turbine, Description(from fault code) and Date (not hms)
-# Note: wo_start_date becomes Date. 
 fully_joined = full_join(fully_joined, workorder, by = c("Turbine" = "location_id",
                                                             "Description" = "Description", 
                                                             "Date" = "wo_start_date"))
 
 
 # looking at a subset of the join of the fully_joined and workorder frames for observations that have workorders (OrderNo)
-# Seems right. The number of workorders after deleting duplicates was 139. merging with the sensory data by the 24 day period
-# results in 172 obs as there can be multiple faultcodes and multiple time intervals when a WO is made. Unfortunately there is 
+# Seems right. The number of workorders after deleting duplicates was 176. merging with the sensory data by the 24 day period
+# results in XXX obs as there can be multiple faultcodes and multiple time intervals when a WO is made. Unfortunately there is 
 # not many sensory data for when a workorder is made.
-test = fully_joined_wo[complete.cases(fully_joined_wo[,16]),]
+test = fully_joined[complete.cases(fully_joined[,16]),]
 
+test2 = fully_joined[is.na(fully_joined$Timestamp),]
 
-
+write.csv(fully_joined,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.names=FALSE)
 ```
 
-```{r fault code discriptions, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+```{r fault code Descriptions, eval=FALSE}
+#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
 unique(fully_joined$Description)
 # If the Turbine stops and needs work, it's critical
-# If the fault code is just a warning its a warning... something is wrong but still running
-# else it is unknown, manual stopped or stopped for some other reason
-# Due to the for loop, this takes a long time to run...
-fully_joined$FaultCodeType = "Code Type"
-suppressWarnings(
-for (i in 1:nrow(fully_joined)){
-  if (is.na(fully_joined$Description[i])){fully_joined$FaultCodeType[i] = "Other"}
-  else if (fully_joined$Description[i] == "Gear Oil Temperature High"||
-      fully_joined$Description[i] == "Gear Oil Pressure Too High/Low"||
-      fully_joined$Description[i] == "Converter Tripped, Auto Start" ||
-      fully_joined$Description[i] == "Mainbreaker Cut Out"||
-      fully_joined$Description[i] == "Gear Oil Pump/Blower Superheated"||
-      fully_joined$Description[i] == "Ups Bypass Error"||
-      fully_joined$Description[i] == "Ups-Failure"||  
-      fully_joined$Description[i] == "Slip Ring Error"||
-      fully_joined$Description[i] == "Osc. In Gen Speed, Cons. Lim"||
-      fully_joined$Description[i] == "Ims-Gen Gearbearing Temp Too High"||
-      fully_joined$Description[i] == "Ups-Failure"||
-      fully_joined$Description[i] == "Hs-Gen Gearbearing Superheated"||
-      fully_joined$Description[i] == "Grid Filter Current Overload"||
-      fully_joined$Description[i] == "Gearoil Level Too Low"||
-      fully_joined$Description[i] == "Rpm Sensor Error"||
-      fully_joined$Description[i] == "Srsg Activated"||
-      fully_joined$Description[i] == "Lms-Rot Gearbearing Temp Too High"
-      ){fully_joined$FaultCodeType[i] = "Critical"}
-  else if (fully_joined$Description[i] == "Gear Oil Temperature Warning"||
-           fully_joined$Description[i] == "Converter Trip, External"||
-           fully_joined$Description[i] == "Converter Tripped, General"||
-           fully_joined$Description[i] == "Main Bearing Temp Too High"||
-           fully_joined$Description[i] == "Generator High Speed Waiting"||
-           fully_joined$Description[i] == "Inv.(Tow) Cool Water Pres. Warning"||
-           fully_joined$Description[i] == "Inv.(Tow) Cool Water Pres. Low"||
-           fully_joined$Description[i] == "Tower Conv. Cooling Water Low"||
-           fully_joined$Description[i] == "Hydraulic Filter Warning"||
-           fully_joined$Description[i] == "Gear Oil Temp Sensor Warning"||
-           fully_joined$Description[i] == "Main Bearing Temp Warning"||
-           fully_joined$Description[i] == "Lmu Alarm Overspeed"||
-           fully_joined$Description[i] == "Brake Pressure Too Low"||
-           fully_joined$Description[i] == "Inverter Temperature High"||
-           fully_joined$Description[i] == "Grdinv: 38 D1 Volt High"||
-           fully_joined$Description[i] == "Grease Level Low, Gen Bearings"||
-           fully_joined$Description[i] == "Grdinv: 38 D1 Volt High"||
-           fully_joined$Description[i] == "Yaw Limit Sensor Activated"||
-           fully_joined$Description[i] == "No Lubrication, Gen Bearings"||
-           fully_joined$Description[i] == "Brake (Gen) Temperature Error"||
-           fully_joined$Description[i] == "Dc Voltage Low"||
-           fully_joined$Description[i] == "Grease Level Low, Hub"||
-           fully_joined$Description[i] == "Geninv: 38 D1 Volt High"||
-           fully_joined$Description[i] == "Gearoil Level Too Low"||
-           fully_joined$Description[i] == "Geninv: 56 D3 Volt High"||
-           fully_joined$Description[i] == "Inv. Cooling Water Temp Warning"||
-           fully_joined$Description[i] == "Delta Module Temperature High"||
-           fully_joined$Description[i] == "Gear Oil Temp Sensor Warning"||
-           fully_joined$Description[i] == "Gear Bearing Hs-Gen Sensor Warning"||
-           fully_joined$Description[i] == "Gear Bearing Hs-Rot Sensor Warning"||
-           fully_joined$Description[i] == "Gear Bearing Ims-Gen Sensor Warning"||
-           fully_joined$Description[i] == "Gear Bearing Ims-Rot Sensor Warning"||
-           fully_joined$Description[i] == "Hs-Rot Gearbearing Temp Warning"||
-           fully_joined$Description[i] == "Fuse Blown, Grid Filter"||
-           fully_joined$Description[i] == "Hs-Gen Gearbearing Temp Warning"||
-           fully_joined$Description[i] == "High Upper Voltage Exceeded"||
-           fully_joined$Description[i] == "Low Lower Voltage Exceeded"||
-           fully_joined$Description[i] == "UPS Battery Low, Warning"||
-           fully_joined$Description[i] == "Ups Battery Low"||
-           fully_joined$Description[i] == "Dc Fuse Blown"||
-           fully_joined$Description[i] == "Gear Oil Temperature Low"||
-           fully_joined$Description[i] == "Hydraulic Oil Too Cold"||
-           fully_joined$Description[i] == "Blown Yaw Brake Fuse"||
-           fully_joined$Description[i] == "Too Many Slip Ring Errors"||
-           fully_joined$Description[i] == "No Lubrication, Yaw System"||
-           fully_joined$Description[i] == "Lmu Sensor Error"||
-           fully_joined$Description[i] == "Srsg Activated"
-  ){fully_joined$FaultCodeType[i] = "Warning"}
-  else {fully_joined$FaultCodeType[i] = "Other"}
-})
+# Warning is for what maybe a warning or something.
+# else it is unknown, no fault codes, manual stopped or stopped for some other reason
 
+fully_joined = fully_joined %>%mutate(FaultCodeType =
+  case_when(
+  Description == "Gear Oil Temperature High"~"Critical",
+  Description == "Gear Oil Pressure Too High/Low"~"Critical",
+  Description == "Converter Tripped, Auto Start"~"Critical",
+  Description == "Mainbreaker Cut Out"~"Critical",
+  Description == "Gear Oil Pump/Blower Superheated"~"Critical",
+  Description == "Ups Bypass Error"~"Critical",
+  Description == "Ups-Failure"~"Critical"  ,
+  Description == "Slip Ring Error"~"Critical",
+  Description == "Osc. In Gen Speed, Cons. Lim"~"Critical",
+  Description == "Ims-Gen Gearbearing Temp Too High"~"Critical",
+  Description == "Ups-Failure"~"Critical",
+  Description == "Hs-Gen Gearbearing Superheated "~"Critical",
+  Description == "Grid Filter Current Overload"~"Critical",
+  Description == "Gearoil Level Too Low"~"Critical",
+  Description == "Rpm Sensor Error"~"Critical",
+  Description == "Srsg Activated"~"Critical",
+  Description == "Lms-Rot Gearbearing Temp Too High"~"Critical",
+  Description == "Gear Oil Temperature Warning"~"Warning",
+  Description == "Converter Trip, External"~"Warning",
+  Description == "Converter Tripped, General"~"Warning",
+  Description == "Main Bearing Temp Too High"~"Warning",
+  Description == "Generator High Speed Waiting"~"Warning",
+  Description == "Inv.(Tow) Cool Water Pres. Warning"~"Warning",
+  Description == "Inv.(Tow) Cool Water Pres. Low"~"Warning",
+  Description == "Tower Conv. Cooling Water Low"~"Warning",
+  Description == "Hydraulic Filter Warning"~"Warning",
+  Description == "Gear Oil Temp Sensor Warning"~"Warning",
+  Description == "Main Bearing Temp Warning"~"Warning",
+  Description == "Lmu Alarm Overspeed"~"Warning",
+  Description == "Brake Pressure Too Low"~"Warning",
+  Description == "Inverter Temperature High"~"Warning",
+  Description == "Grdinv: 38 D1 Volt High"~"Warning",
+  Description == "Grease Level Low, Gen Bearings"~"Warning",
+  Description == "Grdinv: 38 D1 Volt High"~"Warning",
+  Description == "Yaw Limit Sensor Activated"~"Warning",
+  Description == "No Lubrication, Gen Bearings"~"Warning",
+  Description == "Brake (Gen) Temperature Error"~"Warning",
+  Description == "Dc Voltage Low"~"Warning",
+  Description == "Grease Level Low, Hub"~"Warning",
+  Description == "Geninv: 38 D1 Volt High"~"Warning",
+  Description == "Gearoil Level Too Low"~"Warning",
+  Description == "Geninv: 56 D3 Volt High"~"Warning",
+  Description == "Inv. Cooling Water Temp Warning"~"Warning",
+  Description == "Delta Module Temperature High"~"Warning",
+  Description == "Gear Oil Temp Sensor Warning"~"Warning",
+  Description == "Gear Bearing Hs-Gen Sensor Warning"~"Warning",
+  Description == "Gear Bearing Hs-Rot Sensor Warning"~"Warning",
+  Description == "Gear Bearing Ims-Gen Sensor Warning"~"Warning",
+  Description == "Gear Bearing Ims-Rot Sensor Warning"~"Warning",
+  Description == "Hs-Rot Gearbearing Temp Warning"~"Warning",
+  Description == "Fuse Blown, Grid Filter"~"Warning",
+  Description == "Hs-Gen Gearbearing Temp Warning"~"Warning",
+  Description == "High Upper Voltage Exceeded"~"Warning",
+  Description == "Low Lower Voltage Exceeded"~"Warning",
+  Description == "UPS Battery Low, Warning"~"Warning",
+  Description == "Ups Battery Low"~"Warning",
+  Description == "Dc Fuse Blown"~"Warning",
+  Description == "Gear Oil Temperature Low"~"Warning",
+  Description == "Hydraulic Oil Too Cold"~"Warning",
+  Description == "Blown Yaw Brake Fuse"~"Warning",
+  Description == "Too Many Slip Ring Errors"~"Warning",
+  Description == "No Lubrication, Yaw System"~"Warning",
+  Description == "Lmu Sensor Error"~"Warning",
+  Description == "Srsg Activated"~"Warning",
+  .default ="Other"
+))
+
+
+
+#making sure it has only the 3 levels
 unique(fully_joined$FaultCodeType)
-
-#Keeping only unique rows, for each time period and turbine there can be multiple fault codes, but exactly the same sensory data.
-fully_joined <- fully_joined[!duplicated(fully_joined[,1:12]),]
 
 
 ```
 
 ```{r output file, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
-# Output Dataset not imputed
-path_out = 'Data//'
-write.csv(fully_joined,paste(path_out,'final_data-v4.csv',sep = ''),row.names=FALSE)
+# Output Dataset fuzzy joined
+write.csv(fully_joined,paste(path_out,'final_datav5a.csv',sep = ''),row.names=FALSE)
 
-#Impute Dataset
-imputed_dataset = fully_joined
-#Replace all NA values in numeric columns with average column value.
-imputed_dataset$Bearing_Temp[is.na(imputed_dataset$Bearing_Temp)] <- mean(imputed_dataset$Bearing_Temp,na.rm=TRUE)
-imputed_dataset$Windspeed[is.na(imputed_dataset$Windspeed)] <- mean(imputed_dataset$Windspeed,na.rm=TRUE)
-imputed_dataset$Hydraulic_Pressure[is.na(imputed_dataset$Hydraulic_Pressure)] <- mean(imputed_dataset$Hydraulic_Pressure,na.rm=TRUE)
-imputed_dataset$Generator_RPM[is.na(imputed_dataset$Generator_RPM)] <- mean(imputed_dataset$Generator_RPM,na.rm=TRUE)
-imputed_dataset$Oil_Temp[is.na(imputed_dataset$Oil_Temp)] <- mean(imputed_dataset$Oil_Temp,na.rm=TRUE)
-imputed_dataset$Gearbox_IMS[is.na(imputed_dataset$Gearbox_IMS)] <- mean(imputed_dataset$Gearbox_IMS,na.rm=TRUE)
-imputed_dataset$Active_Power[is.na(imputed_dataset$Active_Power)] <- mean(imputed_dataset$Active_Power,na.rm=TRUE)
-imputed_dataset$Ambient_Temp[is.na(imputed_dataset$Ambient_Temp)] <- mean(imputed_dataset$Ambient_Temp,na.rm=TRUE)
+# test looking at data by turbine
+test2 = subset(fully_joined, Turbine == "Turbine 10")
 
-# binary variable FaultOccurred. If a fault code is present in the time interval, Yes, if not,No.
-imputed_dataset$FaultOccurred <-with(imputed_dataset, ifelse(is.na(db$FaultCode),"Yes","No"))
-as.factor(imputed_dataset$FaultOccurred)
+
+
+# Declare imputed data frame
+ts_imputed = fully_joined
+# list of turbines
+turbine_list = unique(ts_imputed$Turbine)
+# sorting list of turbines by ascending order
+turbine_list= turbine_list[order(nchar(turbine_list), turbine_list)]
+# This was originally needed for fuzzy merged work order with the sensory data. 
+# turbine_list = turbine_list[c(-2,-3,-8,-9,-16,-17,-18,-19,-20)] # remove turbine 2,3,8,9, 16-20. There is no sensory data for theses, but there are work orders....
+# list of sensory columns names
+column_list = colnames(ts_imputed)[c(7:14)]
+
+# iterate through turbines then through each imputing column
+for (i in 1:length(turbine_list)){
+ print(paste0("imputing turbine: ", i))
+ #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
+ x = subset(fully_joined, Turbine == turbine_list[i])
+ for (j in column_list){
+  print(paste0("imputing column: ", j))
+  # use this time series imputing algorithm to fill in missing values
+  imp = na_kalman(x[,j])
+  # put data back into bhedata and we have a new dataframe that is all imputed!!!
+  ts_imputed[ts_imputed$Turbine == turbine_list[i],j] <- imp
+
+ }
+
+}
+
+# this executes, but I do not like the negative temps for certain sesors
+# all columns except for ambient temp was imputed using this algorithm, it was not possible for data we do not have it for turbines. We will keep it as na for now.
 
 # Output Dataset imputed
-write.csv(imputed_dataset,paste(path_out,'imputed_final_data.csv',sep = ''),row.names=FALSE)
+write.csv(ts_imputed,paste(path_out,'imputed_added_data.csv',sep = ''),row.names=FALSE)
 
 ```
 
 ## Matrix
 
-```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE, results='hide',fig.keep='all'}
+```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/final_data-v4.csv")
+db <- read.csv("Data/final_data-v5.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
 db$Timestamp <- ymd_hms(db$Timestamp)
-db$Date <- ymd(db$Date)
-db$wo_finish_date <- ymd(db$wo_finish_date)
+db$wo_start_date <- ymd(db$Date)
 
-# There are only 200 completed sensor metrics for the data set.
-db2 = db[complete.cases(db[,5:12]),]
+
+# Just looking, there are only 198 completed observations for the data set ( in the 15 minute rounded intervals)
+db2 = db[complete.cases(db[,7:15]),]
 
 numeric <- dplyr::select_if(db, is.numeric)
-numeric <- subset(numeric, select =-c(FaultCode, OrderNo)) # These are technically a categorical variable
+numeric <- subset(numeric, select =-c(FaultCode)) # These are technically a categorical variable
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
-ggcorrplot(r) + labs(title = "Correlation matrix")
+ggcorrplot(r) + labs(title = "Correlation matrix")      
 
 
 scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
-# crash monster
+# shouldn't run as it will freeze, instead used python with seaborn for a scatterplot matrix in the next code cluster
 # ggplotly(scatter_matrix)
 
 #Notes:
-# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .92.
+# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .94.
 # We can see that Active Power is also directly related to the Generator RPM at .94. Which seems right.
-# We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power
-
+# We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power. Probably due to a lack of wind data
 
 
 ```
@@ -588,11 +669,13 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = pd.read_csv("Data/final_data-v4.csv")
-d2 = data.drop(columns =['FaultCode', 'OrderNo']) # these are Categorical 
+data = pd.read_csv("Data/final_data-v5.csv")
+db2 = data.drop(columns =['FaultCode']) # these are Categorical 
 
 # Seaborn scatterplot matrix
-sns.pairplot(d2)
+sns.pairplot(db2)
+plt.show() #use to show in r mark down. Don't use when knitting to html
+
 
 ```
 
@@ -630,26 +713,25 @@ g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
 
-g3 = ggplot(db %>%arrange(desc(FaultCodeType)),
+  ggplot(ts_imputed %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
        aes(x=Timestamp,
-           y=Active_Power,
+           y=Bearing_Temp,
            color = FaultCodeType,
            alpha = FaultCodeType))+
-  ggtitle("Active Power")+
+  ggtitle("Bearing Temp Time Series")+
   xlab("Date")+
-  ylab("Active Power")+
-  scale_x_continuous(limits = c(500, 1400))+
+  ylab("Temperature")+
+  #scale_x_continuous(limits = c(500, 1400))+
   theme_bw()+
-  scale_colour_manual(values = c("#DC267F", "#648FFF", "#FFB000"))+
+  scale_colour_manual(values = c("#DC267F", "#FFB000"))+
+  #scale_alpha_manual(values=c(1,0.05))+
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_point()+ 
-  scale_alpha_manual(values=c(1,0.05,1))
+  geom_point()
 
 
-
-grid.arrange(g1, g2)
-
+grid.arrange(g1, g2,g3)
 
 
 ```
+
 

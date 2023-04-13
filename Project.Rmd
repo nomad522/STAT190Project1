@@ -438,9 +438,10 @@ path_out = 'Data/'
 write.csv(fully_joined,paste(path_out,'final_data-v6.csv',sep = ''),row.names=FALSE)
 
 # load save point
-fully_joined <- read.csv("Data/Wind Turbine Data Batch 2/final_data-v5.csv")
+fully_joined <- read.csv("Data/final_data-v6.csv")
 fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
 fully_joined$Date <- ymd(fully_joined$Date)
+
 
 
 ```

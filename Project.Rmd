@@ -603,13 +603,11 @@ unique(fully_joined$FaultCodeType)
 ```{r output file, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
-# Output Dataset fuzzy joined
-write.csv(fully_joined,paste(path_out,'final_datav5a.csv',sep = ''),row.names=FALSE)
 
 # test looking at data by turbine
 test2 = subset(fully_joined, Turbine == "Turbine 13")
 
-
+# Will need to try for only data set 2. This was originally for the combination of data set 1 & 2
 
 # Declare imputed data frame
 ts_imputed = fully_joined

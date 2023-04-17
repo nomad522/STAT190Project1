@@ -34,6 +34,8 @@ library(GGally)
 library(imputeTS)
 library(randomForest)
 library(TSstudio)
+library(randomForest) #to fit random forest
+library(pROC) # for ROC curves
 
 # In reticulate's python environment install (from the r terminal):
 # numpy
@@ -443,7 +445,6 @@ fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
 fully_joined$Date <- ymd(fully_joined$Date)
 
 
-
 ```
 
 
@@ -605,21 +606,14 @@ unique(fully_joined$FaultCodeType)
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
 
-# test looking at data by turbine
-test2 = subset(fully_joined, Turbine == "Turbine 13")
-
-# Will need to try for only data set 2. This was originally for the combination of data set 1 & 2
-
 # Declare imputed data frame
 ts_imputed = fully_joined
 # list of turbines
 turbine_list = unique(ts_imputed$Turbine)
 # sorting list of turbines by ascending order
 turbine_list= turbine_list[order(nchar(turbine_list), turbine_list)]
-# This was originally needed for fuzzy merged work order with the sensory data. 
-# turbine_list = turbine_list[c(-2,-3,-8,-9,-16,-17,-18,-19,-20)] # remove turbine 2,3,8,9, 16-20. There is no sensory data for theses, but there are work orders....
 # list of sensory columns names
-column_list = colnames(ts_imputed)[c(7:14)]
+column_list = colnames(ts_imputed)[c(7:15)]
 
 # iterate through turbines then through each imputing column
 for (i in 1:length(turbine_list)){
@@ -637,11 +631,30 @@ for (i in 1:length(turbine_list)){
 
 }
 
-# this executes, but I do not like the negative temps for certain sensors and imputed values are now too high and too low
-# all columns except for ambient temp was imputed using this algorithm, it was not possible for data we do not have it for turbines. We will keep it as na for now.
-
 # Output Dataset imputed
-write.csv(ts_imputed,paste(path_out,'imputed_added_data.csv',sep = ''),row.names=FALSE)
+write.csv(ts_imputed,paste(path_out,'Data/final_data-v6-imputed.csv',sep = ''),row.names=FALSE)
+
+# Everything looks good except windspeed imputes to over 600 m/s = over 1000mph...
+ts_imputed %>% ungroup()%>% summarise(min = min(Windspeed),
+                        max = max(Windspeed),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Bearing_Temp),
+                        max = max(Bearing_Temp),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Generator_RPM),
+                        max = max(Generator_RPM),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Hydraulic_Pressure),
+                        max = max(Hydraulic_Pressure),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Oil_Temp),
+                        max = max(Oil_Temp),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Gearbox_IMS_1),
+                        max = max(Gearbox_IMS_1),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Gearbox_IMS_2),
+                        max = max(Gearbox_IMS_2),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Active_Power),
+                        max = max(Active_Power),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Ambient_Temp),
+                        max = max(Ambient_Temp),)
+ts_imputed %>% ungroup()%>% summarise(min = min(Timestamp),
+                        max = max(Timestamp),)
 
 ```
 
@@ -649,15 +662,12 @@ write.csv(ts_imputed,paste(path_out,'imputed_added_data.csv',sep = ''),row.names
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/Wind Turbine Data Batch 2/final_data-v5.csv", stringsAsFactors = TRUE)
+db <- read.csv("Data/final_data-v6-imputed.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
 db$Timestamp <- ymd_hms(db$Timestamp)
 db$wo_start_date <- ymd(db$Date)
 
-
-# Just looking, there are only 198 completed observations for the data set ( in the 15 minute rounded intervals)
-db2 = db[complete.cases(db[,7:15]),]
 
 numeric <- dplyr::select_if(db, is.numeric)
 numeric <- subset(numeric, select =-c(FaultCode)) # These are technically a categorical variable
@@ -683,7 +693,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = pd.read_csv("Data/Wind Turbine Data Batch 2/final_data-v5.csv")
+data = pd.read_csv("Data/final_data-v6-imputed.csv")
 db2 = data.drop(columns =['FaultCode']) # these are Categorical 
 
 # Seaborn scatterplot matrix
@@ -692,6 +702,28 @@ plt.show() #use to show in r mark down. Don't use when knitting to html
 
 
 ```
+
+
+### Lag varaibles
+```{r, lag}
+
+# Creating lag variables by 6 hours
+db2 = db %>% group_by(Turbine) %>% mutate(lagHSB = lag(Bearing_Temp, n=24),
+                                           lagPressure = lag(Hydraulic_Pressure, n=24),
+                                           lagRPM = lag(Generator_RPM, n=24),
+                                           lagOil = lag(Oil_Temp, n=24),
+                                           lagIMS1 = lag(Gearbox_IMS_1, n=24),
+                                           lagIMS2 = lag(Gearbox_IMS_2, n=24),
+                                           lagPower = lag(Active_Power, n=24))
+db2 = db2 %>% drop_na(lagHSB)
+db2 = subset(db2, select=-c(Windspeed,Ambient_Temp, Bearing_Temp,Hydraulic_Pressure,Generator_RPM,Oil_Temp,Gearbox_IMS_1,Gearbox_IMS_2,Active_Power))
+write.csv(db2, "lagged_final.csv", row.names=FALSE)
+
+lagged <- read.csv("Data/lagged_final.csv", stringsAsFactors = TRUE)
+
+
+```
+
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
@@ -740,5 +772,42 @@ g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType
 
 grid.arrange(g1, g2,g3)
 
+
+```
+
+```{r, random_forest}
+#WIP
+# find most effective m try
+
+final_data2 <- lagged
+str(final_data2)
+
+final_data2 = final_data2 %>% mutate(BinaryFault = case_when(FaultCodeType =="Critical" ~ 1,
+                                               .default = 0))
+
+final_data2$BinaryFault <- as.factor(final_data2$BinaryFault)
+final_data2$location_id <- as.factor(final_data2$Turbine)
+str(final_data2)
+
+RNGkind(sample.kind = "default")
+set.seed(231231)
+train.idx <- sample(x = 1 : nrow(final_data2), size = .8*nrow(final_data2))
+# make training data
+train.df <- final_data2[train.idx, ]
+#make testing data
+test.df <- final_data2[-train.idx, ]
+
+
+myforest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
+             data = train.df,
+             ntree = 500, # b
+             mtry = 2,
+             importance = TRUE)
+myforest
+
+plot(myforest)
+
+#create a sequence of m values we want to try
+mtry <- c(1:6) #only have 12 variables - thus can only vary between 1 to 12
 
 ```

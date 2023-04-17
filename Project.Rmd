@@ -666,7 +666,6 @@ db <- read.csv("Data/final_data-v6-imputed.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
 db$Timestamp <- ymd_hms(db$Timestamp)
-db$wo_start_date <- ymd(db$Date)
 
 
 numeric <- dplyr::select_if(db, is.numeric)
@@ -720,7 +719,8 @@ db2 = subset(db2, select=-c(Windspeed,Ambient_Temp, Bearing_Temp,Hydraulic_Press
 write.csv(db2, "lagged_final.csv", row.names=FALSE)
 
 lagged <- read.csv("Data/lagged_final.csv", stringsAsFactors = TRUE)
-
+# after reading in, must convert time date again.
+lagged$Timestamp <- ymd_hms(db$Timestamp)
 
 ```
 

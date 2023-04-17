@@ -798,16 +798,38 @@ train.df <- final_data2[train.idx, ]
 test.df <- final_data2[-train.idx, ]
 
 
-myforest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
+mtry <- c(1:8) # The maximum number of x variables are 8
+#make room for m, OOB error
+keeps2 <- data.frame(m = rep(NA,length(mtry)*10),#NOTE DIFFERENCE
+                     OOB_err_rate = rep(NA, length(mtry)*10))#NOTE DIFFERENCE
+j = 0 #initialize row to fill#NOTE DIFFERENCE
+for (rep in 1:10){#NOTE DIFFERENCE
+  print(paste0("Repetition = ", rep))#NOTE DIFFERENCE
+  for (idx in 1:length(mtry)){
+    j = j + 1 #increment row to fill over double loop#NOTE DIFFERENCE
+    tempforest<- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower,
+                              data = train.df,
+                              ntree = 1000,
+                              mtry = mtry[idx]) #mtry is varying
+    #record iteration's m value in j'th row
+    keeps2[j , "m"] <- mtry[idx]#NOTE DIFFERENCE
+    #record oob error in j'th row
+    keeps2[j ,"OOB_err_rate"] <- mean(predict(tempforest)!= train.df$Outcome)#NOTE DIFFERENCE
+  }
+}
+keeps2
+#calculate mean for each m value
+keeps3 <- keeps2 %>% group_by(m) %>% summarise(mean_oob = mean(OOB_err_rate))
+keeps3
+
+
+Finalforest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
              data = train.df,
-             ntree = 500, # b
+             ntree = 1000, # b
              mtry = 2,
              importance = TRUE)
 myforest
 
 plot(myforest)
-
-#create a sequence of m values we want to try
-mtry <- c(1:6) #only have 12 variables - thus can only vary between 1 to 12
 
 ```

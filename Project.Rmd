@@ -822,8 +822,8 @@ keeps2
 keeps3 <- keeps2 %>% group_by(m) %>% summarise(mean_oob = mean(OOB_err_rate))
 keeps3
 
-
-Finalforest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
+#need to update with m with smallest oob error
+finalForest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
              data = train.df,
              ntree = 1000, # b
              mtry = 2,

@@ -817,7 +817,7 @@ keeps
 #plot
 ggplot(data = keeps)+
   geom_line(aes(x = m, y = OOB_error_rate))+
-  scale_x_continuous(breaks = c(1:12))+
+  scale_x_continuous(breaks = c(1:8))+
   labs(x = "m (mtry): # of x variables sampled",
        y = "OOB Error rate")
 

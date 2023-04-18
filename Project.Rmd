@@ -810,7 +810,7 @@ for (idx in 1:length(mtry)){
                              ntree = 1000,
                              mtry = mtry[idx])
   keeps[idx, "m"] = mtry[idx]
-  keeps[idx, "OOB_error_rate"] = mean(predict(tempForest) != train.df$Result)
+  keeps[idx, "OOB_error_rate"] = mean(predict(tempForest) != train.df$BinaryFault)
 }
 
 keeps

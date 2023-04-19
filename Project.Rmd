@@ -36,6 +36,7 @@ library(randomForest)
 library(TSstudio)
 library(randomForest) #to fit random forest
 library(pROC) # for ROC curves
+library(rlist)
 
 # In reticulate's python environment install (from the r terminal):
 # numpy
@@ -90,7 +91,7 @@ All r code and rmarkdown will be in the root directory with and all sensory data
 
 #Reading in the data and cleaning
 The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
-then aggregated by the average in 15 minute intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
+then aggregated by the average in 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
 
 
 ```{r data_processing, eval=FALSE}
@@ -98,24 +99,19 @@ then aggregated by the average in 15 minute intervals. The data frames are then 
 
 
 #####workorder------------
+# gets a list of all of the csv files in the directory
 wo_files = list.files("Data/Wind Turbine Data Batch 2/Work Order", pattern="*.csv")
+# declaring a list and then adding files names of csvs to that list that have a file size larger than 1
 wo_list = list()
 for (i in 1:length(wo_files)) {
   if (file.size(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_files[i])) >1){
     wo_list = c(wo_list, wo_files[i])
   }
 }
-
-for (i in 1:length(wo_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_files[i])) >1){
-    wo_list = c(wo_list, wo_files[i])
-  }
-}
+# reading in the first non empty csv from the list to a dataframe
 wo = read.csv(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_list[1]), header = TRUE)
-for (i in 2:length(wo_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_list[i]), header = TRUE)
-  wo = rbind(wo, new)
-}
+# adding the rest of the csvs from the list
+# There is only one. There rest of the sensory data has multiple so there is a loop for that
 
 # work order exploration and data cleaning
 # cause_code all null
@@ -153,16 +149,50 @@ for (i in 2:length(fault_list)){
   new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Fault Status Codes/", fault_list[i]), header = FALSE)
   fault = rbind(fault, new)
 }
-#convert Datetime from char to date
-fault$V2 <- ymd_hms(fault$V2)
 #renaming column headers
 names(fault) <- c("location_id", "DateTime", "Date", "FaultCode", "StatusCode", "Description", "Type")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-fault$round_date <- lubridate::round_date(fault$DateTime, "15 minutes")
-#getting rid of duplicates
-fault <- fault %>% arrange(location_id, DateTime) %>% distinct()
-# keeping only one observation of each fault code of each turbine's 15 minute interval
+
+fault$DateTime <- ymd_hms(fault$DateTime)
+fault$Date <- ymd(fault$Date)
+
+#------------------------------Remove duplicates of fault code pinging for consecutive intervals---------------####
+# order fault data by turbine, date, and fault code
+fault <- fault[order(fault$location_id, fault$Date, fault$FaultCode),]
+# create new time difference variable to help remove duplicates
+fault$Time_Diff = NA
+
+
+# The first occurrence of a fault will have a 0 for time difference
+for(i in 2:length(fault$Date)){
+  # take time difference of two lines if they are the same fault code and same turbine id
+  if (fault$location_id[i] == fault$location_id[i-1] && fault$FaultCode[i] == fault$FaultCode[i-1]){
+    fault$Time_Diff[i] = as.numeric(difftime(fault$Date[i], fault$Date[i-1], 'days'))
+  }
+  # new faults or turbines (different from previous row) will start again at 0
+  else fault$Time_Diff[i] = 0 # 0 does not matter because it will not be used for removal
+}
+
+# set first line time difference to 0
+fault$Time_Diff[1] = 0
+
+# remove duplicates on the same day (only keep first occurrence of certain fault on a day)
+fault <- fault[!duplicated(fault[c("location_id", "Date", "FaultCode")]),]
+
+# remove duplicates of the same fault rolling into the next day and every consecutive day
+# example: on the first line where the same fault rolls over into the next day, the time difference from the previous
+#   line will be 1. Every other occurrence on the same day was already removed, but the next day where it rolled over
+#   will also have a 1. Thus, remove all 1's so the only thing that stands was the first occurrence in the entire series
+#   of intervals.
+fault <- fault %>% filter(Time_Diff != 1)
+
+
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+fault$round_date <- lubridate::round_date(fault$DateTime, "60 minutes")
+## keeping only one observation of each fault code of each turbine's 60 minutes interval
 fault <- fault %>% distinct(location_id, round_date,FaultCode, .keep_all = TRUE)
+# removing unused columns
+fault = subset(fault, select=-c(Time_Diff,DateTime,Date,StatusCode))
+
 
 #### Gearbox HS Bearing Temperature---------------- 
 bearing_files = list.files("Data/Wind Turbine Data Batch 2/Gearbox HS Bearing", pattern="*.csv")
@@ -181,14 +211,12 @@ for (i in 2:length(bearing_list)){
 bearing$V2 <- ymd_hms(bearing$V2)
 #renaming column headers
 names(bearing) <- c("location_id", "DateTime", "Date", "Temperature", "Bearing HS")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-bearing$round_date <- lubridate::round_date(bearing$DateTime, "15 minutes")
-#adding mean of the 15 minute intervals and dropping columns
-bearing <- bearing %>% group_by(location_id, round_date) %>% mutate(mean_bearing = mean(Temperature))
-# keeping only one observation of the mean for each turbine's 15 minute interval
-bearing <- bearing %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-bearing = subset(bearing, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+bearing <- bearing %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+bearing$round_date <- lubridate::round_date(bearing$DateTime, "60 minutes")
+#adding mean, max, min and sd of the 60 minutes intervals and dropping columns
+bearing <-bearing %>% group_by(location_id, round_date) %>% summarise(mean_bearing = mean(Temperature), max_bearing = max(Temperature), min_bearing = min(Temperature), sd_bearing = sd(Temperature), .groups = 'drop') %>% as.data.frame
 
 
 
@@ -209,15 +237,12 @@ for (i in 2:length(ims_list)){
 ims$V2 <- ymd_hms(ims$V2)
 #renaming column headers
 names(ims) <- c("location_id", "DateTime", "Date", "Temperature", "ims")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-ims$round_date <- lubridate::round_date(ims$DateTime, "15 minutes")
-#adding mean ims bearing temp of the 15 minute intervals and dropping columns
-ims <- ims %>% group_by(location_id, round_date) %>% mutate(mean_ims= mean(Temperature))
-# # Removing keeping only one observation of the mean for each turbine's 15 minute interval
-ims <- ims %>% distinct(location_id, round_date, .keep_all = TRUE)
-# Note: Tried a different method in getting the mean and deleting duplicates. Results in the same number of observations.
-# keeping only a subset of columns
-ims = subset(ims, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+ims <- ims %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+ims$round_date <- lubridate::round_date(ims$DateTime, "60 minutes")
+#adding mean, max, min and sd ims bearing temp of the 60 minutes intervals and dropping columns
+ims <-ims %>% group_by(location_id, round_date) %>% summarise(mean_ims = mean(Temperature), max_ims = max(Temperature), min_ims = min(Temperature), sd_ims = sd(Temperature), .groups = 'drop') %>% as.data.frame
 
 
 #### Gearbox IMS Bearing  2 Temperature---------------- 
@@ -237,14 +262,12 @@ for (i in 2:length(ims_list2)){
 ims2$V2 <- ymd_hms(ims2$V2)
 #renaming column headers
 names(ims2) <- c("location_id", "DateTime", "Date", "Temperature", "ims_2")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-ims2$round_date <- lubridate::round_date(ims2$DateTime, "15 minutes")
-#adding mean ims2 bearing temp of the 15 minute intervals and dropping columns
-ims2 <- ims2 %>% group_by(location_id, round_date) %>% mutate(mean_ims2 = mean(Temperature))
-# # Removing keeping only one observation of the mean for each turbine's 15 minute interval
-ims2 <- ims2 %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-ims2 = subset(ims2, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+ims2 <- ims2 %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+ims2$round_date <- lubridate::round_date(ims2$DateTime, "60 minutes")
+#adding mean, max, min and sd ims2 bearing temp of the 60 minutes intervals and dropping columns
+ims2 <-ims2 %>% group_by(location_id, round_date) %>% summarise(mean_ims2 = mean(Temperature), max_ims2 = max(Temperature), min_ims2 = min(Temperature), sd_ims2 = sd(Temperature), .groups = 'drop') %>% as.data.frame
 
 
 #### Gearbox Oil---------------- 
@@ -264,14 +287,12 @@ for (i in 2:length(oil_list)){
 oil$V2 <- ymd_hms(oil$V2)
 #renaming column headers
 names(oil) <- c("location_id", "DateTime", "Date", "Temperature", "oil")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-oil$round_date <- lubridate::round_date(oil$DateTime, "15 minutes")
-#adding mean oil temp of the 15 minute intervals and dropping columns
-oil <- oil %>% group_by(location_id, round_date) %>% mutate(mean_oil = mean(Temperature))
-# # Removing keeping only one observation of the mean for each turbine's 15 minute interval
-oil <- oil %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-oil = subset(oil, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+oil <- oil %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+oil$round_date <- lubridate::round_date(oil$DateTime, "60 minutes")
+#adding mean, max, min and sd oil temp of the 60 minutes intervals and dropping columns
+oil <-oil %>% group_by(location_id, round_date) %>% summarise(mean_oil = mean(Temperature), max_oil = max(Temperature), min_oil = min(Temperature), sd_oil = sd(Temperature), .groups = 'drop') %>% as.data.frame
 
 
 #### Generator RPM---------------- 
@@ -291,14 +312,13 @@ for (i in 2:length(rpm_list)){
 rpm$V2 <- ymd_hms(rpm$V2)
 #renaming column headers
 names(rpm) <- c("location_id", "DateTime", "Date", "RPM", "Generator rpm")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-rpm$round_date <- lubridate::round_date(rpm$DateTime, "15 minutes")
-# adding mean rpm of the 15 minute intervals and dropping columns
-rpm <- rpm %>% group_by(location_id, round_date) %>% mutate(mean_rpm = mean(RPM))
-# # Removing keeping only one observation of the mean for each turbine's 15 minute interval
-rpm <- rpm %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-rpm = subset(rpm, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+rpm <- rpm %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+rpm$round_date <- lubridate::round_date(rpm$DateTime, "60 minutes")
+# adding mean, max, min and sd rpm of the 60 minutes intervals and dropping columns
+# Removing keeping only one observation of the mean for each turbine's 60 minutes interval
+rpm <-rpm %>% group_by(location_id, round_date) %>% summarise(mean_rpm = mean(RPM), max_rpm = max(RPM), min_rpm = min(RPM), sd_rpm = sd(RPM), .groups = 'drop') %>% as.data.frame
 
 
 
@@ -319,14 +339,12 @@ for (i in 2:length(hydraulic_list)){
 hydraulic$V2 <- ymd_hms(hydraulic$V2)
 #renaming column headers
 names(hydraulic) <- c("location_id", "DateTime", "Date", "Pressure", "Hydraulic Pressure")
-#Adding a variable round_date to round times to nearest 15 minute intervals
-hydraulic$round_date <- lubridate::round_date(hydraulic$DateTime, "15 minutes")
-#adding hydraulic pressure to 15 minute intervals and dropping columns
-hydraulic <- hydraulic %>% group_by(location_id, round_date) %>% mutate(mean_oil = mean(Pressure))
-# Removing keeping only one observation of the mean for each turbine's 15 minute interval
-hydraulic <- hydraulic %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-hydraulic = subset(hydraulic, select = c(1,6,7))
+# sorting data by turbine, then the DateTime.
+hydraulic <- hydraulic %>% arrange(location_id, DateTime) %>% distinct()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+hydraulic$round_date <- lubridate::round_date(hydraulic$DateTime, "60 minutes")
+#adding mean, max, min and sd of hydraulic pressure of the 60 minutes intervals and dropping columns
+hydraulic <-hydraulic %>% group_by(location_id, round_date) %>% summarise(mean_hydraulic = mean(Pressure), max_hydraulic = max(Pressure), min_hydraulic = min(Pressure), sd_hydraulic = sd(Pressure), .groups = 'drop') %>% as.data.frame
 
 
 #### active power-------------- 
@@ -348,14 +366,10 @@ active$V2 <- ymd_hms(active$V2)
 names(active) <- c("location_id", "DateTime", "Date", "power", "Active power")
 # sorting data by turbine, then the DateTime.
 active <- active %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 15 minute intervals
-active$round_date <- lubridate::round_date(active$DateTime, "15 minutes")
-# adding mean active power of the 15 minute intervals and dropping columns
-active <- active %>% group_by(location_id, round_date) %>% mutate(mean_power = mean(power))
-# # Removing keeping only one observation of the mean for each turbine's 15 minute interval
-active <- active %>% distinct(location_id, round_date, .keep_all = TRUE)
-# keeping only a subset of columns
-active = subset(active, select = c(1,6,7))
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+active$round_date <- lubridate::round_date(active$DateTime, "60 minutes")
+# adding mean, max, min and sd active power of the 60 minutes intervals and dropping columns
+active <-active %>% group_by(location_id, round_date) %>% summarise(mean_active = mean(power), max_active = max(power), min_active = min(power), sd_active = sd(power), .groups = 'drop')
 
 
 
@@ -379,10 +393,10 @@ names(ambient) <- c("location_id", "DateTime", "Date", "ambient_temp", "Ambient 
 # sorting data by turbine, then the DateTime.
 ambient <- ambient %>% 
   arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 15 minute intervals
-ambient$round_date <- lubridate::round_date(ambient$DateTime, "15 minutes")
-#adding mean power of the 15 minute intervals and dropping columns
-ambient <-ambient %>% group_by(location_id, round_date) %>% summarise(mean_ambient = mean(ambient_temp), .groups = 'drop') %>% as.data.frame
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+ambient$round_date <- lubridate::round_date(ambient$DateTime, "60 minutes")
+#adding mean, max, min and sd power of the 60 minutes intervals and dropping columns
+ambient <-ambient %>% group_by(location_id, round_date) %>% summarise(mean_ambient = mean(ambient_temp), max_ambient = max(ambient_temp), min_ambient = min(ambient_temp), sd_ambient = sd(ambient_temp), .groups = 'drop') %>% as.data.frame
 
 #### Wind Speed-------------- 
 wind_files = list.files("Data/Wind Turbine Data Batch 2/Windspeed", pattern="*.csv")
@@ -403,16 +417,17 @@ wind$V2 <- ymd_hms(wind$V2)
 names(wind) <- c("location_id", "DateTime", "Date", "windspeed", "Wind Speed")
 # sorting data by turbine, then the DateTime.
 wind <- wind %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 15 minute intervals
-wind$round_date <- lubridate::round_date(wind$DateTime, "15 minutes")
-#adding mean power of the 15 minute intervals and dropping columns
-wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed = mean(windspeed), .groups = 'drop') %>% as.data.frame()
+#Adding a variable round_date to round times to nearest 60 minutes intervals
+wind$round_date <- lubridate::round_date(wind$DateTime, "60 minutes")
+#adding mean, max, min and sd power of the 60 minutes intervals and dropping columns
+wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed = mean(windspeed), max_windspeed = max(windspeed), min_windspeed = min(windspeed), sd_windspeed = sd(windspeed), .groups = 'drop') %>% as.data.frame()
 
+```
 
+```{r, joining}
 
 ####Joining datasets------
-fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
-  full_join(., wind, c('location_id', 'round_date')) %>%
+fully_joined <- full_join(wind, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., hydraulic, c('location_id', 'round_date')) %>%
   full_join(., rpm, c('location_id', 'round_date')) %>%
   full_join(., oil, c('location_id', 'round_date')) %>%
@@ -421,26 +436,24 @@ fully_joined <- full_join(fault, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., active, c('location_id', 'round_date'))%>%
   full_join(., ambient, by=c('location_id', 'round_date'))
 
-# Removing unused columns
-fully_joined <- subset(fully_joined, select = -c(DateTime, StatusCode)) # using round_date Note: we keep Date this time so we don't need to create it later for merging with # Work Orders
+fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date'))
+
+
 #Note Date should be the just the ymd the same as round_date's ymd_hms, but since during aggregation something like 23:57 would be rounded to 00:00am of the next day,
 # but would have the previous date in Date and the next day's date in round_date. We will just fix that.
 fully_joined$Date = fully_joined$round_date
 fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 
-# Keeping only unique rows (duplicates exist due to original time of the faultcode when not rounded)
-# could just remove duplicates after each sensory read in to maybe reduce join time.
-fully_joined <- fully_joined[!duplicated(fully_joined[,1:12]),]
 
 # Renaming columns
-names(fully_joined) <- c("Turbine", "Date", "FaultCode", "Description","Type", "Timestamp", "Bearing_Temp", "Windspeed", "Hydraulic_Pressure", "Generator_RPM", "Oil_Temp", "Gearbox_IMS_1", "Gearbox_IMS_2", "Active_Power", "Ambient_Temp")
+names(fully_joined) <- c("Turbine", "Timestamp",  "Windspeed", "Bearing_Temp", "Hydraulic_Pressure","Generator_RPM","Oil_Temp","Gearbox_IMS_1", "Gearbox_IMS_2", "Active_Power", "Ambient_Temp", "FaultCode", "Description","Type","Date")
 
 #save spot copy of data 
 path_out = 'Data/'
-write.csv(fully_joined,paste(path_out,'final_data-v6.csv',sep = ''),row.names=FALSE)
+write.csv(fully_joined,paste(path_out,'final_data-v7.csv',sep = ''),row.names=FALSE)
 
 # load save point
-fully_joined <- read.csv("Data/final_data-v6.csv")
+fully_joined <- read.csv("Data/final_data-v7.csv")
 fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
 fully_joined$Date <- ymd(fully_joined$Date)
 
@@ -525,6 +538,7 @@ unique(fully_joined$Description)
 # Warning is for what maybe a warning or something.
 # else it is unknown, no fault codes, manual stopped or stopped for some other reason
 
+#grep()
 fully_joined = fully_joined %>%mutate(FaultCodeType =
   case_when(
   Description == "Gear Oil Temperature High"~"Critical",
@@ -613,7 +627,7 @@ turbine_list = unique(ts_imputed$Turbine)
 # sorting list of turbines by ascending order
 turbine_list= turbine_list[order(nchar(turbine_list), turbine_list)]
 # list of sensory columns names
-column_list = colnames(ts_imputed)[c(7:15)]
+column_list = colnames(ts_imputed)[c(3:11)]
 
 # iterate through turbines then through each imputing column
 for (i in 1:length(turbine_list)){
@@ -632,7 +646,7 @@ for (i in 1:length(turbine_list)){
 }
 
 # Output Dataset imputed
-write.csv(ts_imputed,paste(path_out,'Data/final_data-v6-imputed.csv',sep = ''),row.names=FALSE)
+write.csv(ts_imputed,paste(path_out,'final_data-v7-imputed.csv',sep = ''),row.names=FALSE)
 
 # Everything looks good except windspeed imputes to over 600 m/s = over 1000mph...
 ts_imputed %>% ungroup()%>% summarise(min = min(Windspeed),
@@ -662,11 +676,11 @@ ts_imputed %>% ungroup()%>% summarise(min = min(Timestamp),
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/final_data-v6-imputed.csv", stringsAsFactors = TRUE)
+db <- read.csv("Data/final_data-v7-imputed.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
 db$Timestamp <- ymd_hms(db$Timestamp)
-
+db$Date <- ymd(db$Date)
 
 numeric <- dplyr::select_if(db, is.numeric)
 numeric <- subset(numeric, select =-c(FaultCode)) # These are technically a categorical variable
@@ -716,11 +730,13 @@ db2 = db %>% group_by(Turbine) %>% mutate(lagHSB = lag(Bearing_Temp, n=24),
                                            lagPower = lag(Active_Power, n=24))
 db2 = db2 %>% drop_na(lagHSB)
 db2 = subset(db2, select=-c(Windspeed,Ambient_Temp, Bearing_Temp,Hydraulic_Pressure,Generator_RPM,Oil_Temp,Gearbox_IMS_1,Gearbox_IMS_2,Active_Power))
-write.csv(db2, "lagged_final.csv", row.names=FALSE)
+# Output Dataset imputed lagged dataset
+write.csv(db2,paste(path_out,'final_data-v7-imputed-lagged.csv',sep = ''),row.names=FALSE)
 
-lagged <- read.csv("Data/lagged_final.csv", stringsAsFactors = TRUE)
+lagged <- read.csv("Data/final_data-v7-imputed-lagged.csv", stringsAsFactors = TRUE)
 # after reading in, must convert time date again.
-lagged$Timestamp <- ymd_hms(db$Timestamp)
+lagged$Timestamp <- ymd_hms(lagged$Timestamp)
+lagged$Date <- ymd(lagged$Date)
 
 ```
 
@@ -777,25 +793,22 @@ grid.arrange(g1, g2,g3)
 
 ```{r, random_forest}
 #WIP
-# find most effective m try
+# find most effective m
 
-final_data2 <- lagged
-str(final_data2)
-
-final_data2 = final_data2 %>% mutate(BinaryFault = case_when(FaultCodeType =="Critical" ~ 1,
+forest_data <- lagged
+forest_data = forest_data %>% mutate(BinaryFault = case_when(FaultCodeType =="Critical" ~ 1,
                                                .default = 0))
 
-final_data2$BinaryFault <- as.factor(final_data2$BinaryFault)
-final_data2$location_id <- as.factor(final_data2$Turbine)
-str(final_data2)
+forest_data$BinaryFault <- as.factor(forest_data$BinaryFault)
+forest_data$Turbine <- as.factor(forest_data$Turbine)
 
 RNGkind(sample.kind = "default")
 set.seed(231231)
-train.idx <- sample(x = 1 : nrow(final_data2), size = .8*nrow(final_data2))
+train.idx <- sample(x = 1 : nrow(forest_data), size = .8*nrow(forest_data))
 # make training data
-train.df <- final_data2[train.idx, ]
+train.df <- forest_data[train.idx, ]
 #make testing data
-test.df <- final_data2[-train.idx, ]
+test.df <- forest_data[-train.idx, ]
 
 
 mtry <- c(1:8) # The maximum number of x variables are 8
@@ -821,13 +834,24 @@ ggplot(data = keeps)+
   labs(x = "m (mtry): # of x variables sampled",
        y = "OOB Error rate")
 
-# The smallest oob error with the uncondensed Fault Code time series is m = 4. 
-finalForest <- randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
+# The smallest oob error with the Fault Code event is m = 4 or 6. 
+finalForest <- randomForest(BinaryFault ~ lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
              data = train.df,
              ntree = 1000, # b
              mtry = 4,
              importance = TRUE)
 finalForest
 
+pi_hat = predict(finalForest, test.df, type="prob")[,1]
+#pit_hat is now a vector of predicted probabilities (of 1, critical fault codes)
 
+rocCurve = roc(response = test.df$BinaryFault,
+               predictor = pi_hat,
+               levels=c(0,1))
+plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+
+pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+
+varImpPlot(finalForest, type = 1)
 ```

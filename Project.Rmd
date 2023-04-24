@@ -511,6 +511,7 @@ unique(fully_joined$Description)
 # Warning is for what maybe a warning or something.
 # else it is unknown, no fault codes, manual stopped or stopped for some other reason
 
+# Creating categorical variable FaultCodeType.
 #grep()
 lagged = lagged %>%mutate(FaultCodeType =
   case_when(
@@ -581,8 +582,10 @@ lagged = lagged %>%mutate(FaultCodeType =
   .default ="Other"
 ))
 
+# creating a binary y variable, only for the fault codes that were determined by Daniel as being bad
 lagged = lagged %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
                                                .default = 0))
+# removing windspeed, there just isn't enough data
 lagged = subset(lagged, select =-c(mean_windspeed, max_windspeed, min_windspeed, sd_windspeed))
 
 # Output lagged dataset with FaultCodeType and BinaryFault.
@@ -601,8 +604,6 @@ lagged$Date <- ymd(lagged$Date)
 
 # Declare imputed data frame
 ts_imputed = lagged
-# remove windspeed
-
 # list of turbines
 turbine_list = unique(ts_imputed$location_id)
 ts_imputed = arrange(ts_imputed, location_id, round_date)

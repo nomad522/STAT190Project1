@@ -449,85 +449,59 @@ fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 
 #save spot copy of data 
 path_out = 'Data/'
-write.csv(fully_joined,paste(path_out,'final_data-v7.csv',sep = ''),row.names=FALSE)
+write.csv(fully_joined,paste(path_out,'final_data-v8.csv',sep = ''),row.names=FALSE)
 
 # load save point
-fully_joined <- read.csv("Data/final_data-v7.csv")
-fully_joined$Timestamp <- ymd_hms(fully_joined$Timestamp)
+fully_joined <- read.csv("Data/final_data-v8.csv")
+fully_joined$round_date <- ymd_hms(fully_joined$round_date)
 fully_joined$Date <- ymd(fully_joined$Date)
 
 
 ```
 
+### Lag varaibles
+```{r, lag}
 
-```{r fuzzy join work order, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+# Creating lag variables by 6 hours
+db2 = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
+                                          lag_max_bearing = lag(max_bearing,n=6),
+                                          lag_min_bearing = lag(min_bearing,n=6),
+                                          lag_sd_bearing = lag(sd_bearing,n=6),
+                                          lag_mean_hydraulic = lag(mean_hydraulic,n=6),
+                                          lag_max_hydraulic = lag(max_hydraulic,n=6),
+                                          lag_min_hydraulic = lag(min_hydraulic,n=6),
+                                          lag_sd_hydraulic = lag(sd_hydraulic,n=6),
+                                          lag_mean_rpm = lag(mean_rpm,n=6),
+                                          lag_max_rpm = lag(max_rpm,n=6),
+                                          lag_min_rpm = lag(min_rpm,n=6),
+                                          lag_sd_rpm = lag(sd_rpm,n=6),
+                                          lag_mean_oil = lag(mean_oil,n=6),
+                                          lag_max_oil = lag(max_oil,n=6),
+                                          lag_min_oil = lag(min_oil,n=6),
+                                          lag_sd_oil = lag(sd_oil,n=6),
+                                          lag_mean_ims = lag(mean_ims,n=6),
+                                          lag_max_ims = lag(max_ims,n=6),
+                                          lag_min_ims = lag(min_ims,n=6),
+                                          lag_sd_ims = lag(sd_ims,n=6),
+                                          lag_mean_ims2 = lag(mean_ims2,n=6),
+                                          lag_max_ims2 = lag(max_ims2,n=6),
+                                          lag_min_ims2 = lag(min_ims2,n=6),
+                                          lag_sd_ims2 = lag(sd_ims2,n=6),
+                                          lag_mean_active = lag(mean_ims,n=6),
+                                          lag_max_active = lag(max_active,n=6),
+                                          lag_min_active = lag(min_active,n=6),
+                                          lag_sd_active = lag(sd_active,n=6),
+                                          lag_mean_ambient = lag(mean_ambient,n=6),
+                                          lag_max_ambient = lag(max_ambient,n=6),
+                                          lag_min_ambient = lag(min_ambient,n=6),
+                                          lag_sd_ambient = lag(sd_ambient,n=6))
+                                          
 
-# fuzzy join workorder and fully_joined
+db2 = db2 %>% drop_na(lag_min_hydraulic)
+db2 = subset(db2, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
 
-unique(workorder$location_id)
-workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
-                        max = max(wo_start_date),)
-# because we can see that we only have work orders from 2020-06-01 to 2022-08-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
-
-joined_subset <- fully_joined[fully_joined$Timestamp < "2022-09-01",]
-
-
-# Defining the two vectors we will be joining from a match. 
-# from the work order info column we will find the most closely related fault code description
-to_vec <- unique(joined_subset$Description)
-from_vec <- unique(workorder$Order_Info)
-# removing the first 6 characters in hopes of better fuzzy matching
-from_vec2 <- substr(from_vec, 6,nchar(from_vec))
-
-get_best_matches <- function(from_vec2,to_vec) {
-  
-  get_best_matches <- function(from_string, to_vec){
-    return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
-  }
-    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
-  }
-difflib_matches <- get_best_matches(from_vec2, to_vec)
-
-get_score <- function(string1, string2) {
-  return(SequenceMatcher$new(from_vec2[1],difflib_matches[1])$ratio())
-}
-
-get_score <- Vectorize(get_score)
-
-difflib_scores <- get_score(from_vec2, difflib_matches)
-
-fuzzy_list <- data.frame(from_vec, difflib_matches)
-names(fuzzy_list) <- c("Order_Info", "Description")
-
-# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Description, location_id, and approximate time. 
-workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
-#removing columns that are not useful. is_failure is always true because it's a work order and cause code is all null.
-workorder <- subset(workorder, select = -c(is_failure, cause_code))
-
-# convert dates from numeric to date format
-workorder$wo_start_date <- ymd(workorder$wo_start_date)
-
-# Dtate as a date format
-fully_joined$wo_start_date <- ymd(fully_joined$Date)
-
-
-# full joining fully_joined and work order. joining by Turbine, Description(from fault code) and Date (not hms)
-fully_joined = full_join(fully_joined, workorder, by = c("Turbine" = "location_id",
-                                                            "Description" = "Description", 
-                                                            "Date" = "wo_start_date"))
-
-
-# looking at a subset of the join of the fully_joined and workorder frames for observations that have workorders (OrderNo)
-# Seems right. The number of workorders after deleting duplicates was 176. merging with the sensory data by the 24 day period
-# results in XXX obs as there can be multiple faultcodes and multiple time intervals when a WO is made. Unfortunately there is 
-# not many sensory data for when a workorder is made.
-test = fully_joined[complete.cases(fully_joined[,16]),]
-
-test2 = fully_joined[is.na(fully_joined$Timestamp),]
-
-write.csv(fully_joined,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.names=FALSE)
 ```
+
 
 ```{r fault code Descriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
@@ -538,7 +512,7 @@ unique(fully_joined$Description)
 # else it is unknown, no fault codes, manual stopped or stopped for some other reason
 
 #grep()
-fully_joined = fully_joined %>%mutate(FaultCodeType =
+lagged = lagged %>%mutate(FaultCodeType =
   case_when(
   Description == "Gear Oil Temperature High"~"Critical",
   Description == "Gear Oil Pressure Too High/Low"~"Critical",
@@ -607,11 +581,17 @@ fully_joined = fully_joined %>%mutate(FaultCodeType =
   .default ="Other"
 ))
 
+lagged = lagged %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
+                                               .default = 0))
+lagged = subset(lagged, select =-c(mean_windspeed, max_windspeed, min_windspeed, sd_windspeed))
 
+# Output lagged dataset with FaultCodeType and BinaryFault.
+write.csv(db2,paste(path_out,'final_data-v9-lagged.csv',sep = ''),row.names=FALSE)
 
-#making sure it has only the 3 levels
-unique(fully_joined$FaultCodeType)
-
+lagged <- read.csv("Data/final_data-v8-lagged.csv", stringsAsFactors = TRUE)
+# after reading in, must convert time date again.
+lagged$round_date <- ymd_hms(lagged$round_date)
+lagged$Date <- ymd(lagged$Date)
 
 ```
 
@@ -620,21 +600,20 @@ unique(fully_joined$FaultCodeType)
 
 
 # Declare imputed data frame
-ts_imputed = fully_joined
+ts_imputed = lagged
 # remove windspeed
-ts_imputed = subset(ts_imputed, select =-c(mean_windspeed, max_windspeed, min_windspeed, sd_windspeed))
+
 # list of turbines
 turbine_list = unique(ts_imputed$location_id)
-# sorting list of turbines by ascending order
-turbine_list= turbine_list[order(nchar(turbine_list), turbine_list)]
+ts_imputed = arrange(ts_imputed, location_id, round_date)
 # list of sensory columns names
-column_list = colnames(ts_imputed)[c(3:34)]
+column_list = colnames(ts_imputed)[c(7:38)]
 
 # iterate through turbines then through each imputing column
 for (i in 1:length(turbine_list)){
  print(paste0("imputing turbine: ", i))
  #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
- x = subset(fully_joined, location_id == turbine_list[i])
+ x = subset(lagged, location_id == turbine_list[i])
  for (j in column_list){
   print(paste0("imputing column: ", j))
   # use this time series imputing algorithm to fill in missing values
@@ -647,29 +626,7 @@ for (i in 1:length(turbine_list)){
 }
 
 # Output Dataset imputed
-write.csv(ts_imputed,paste(path_out,'final_data-v7-imputed.csv',sep = ''),row.names=FALSE)
-
-# Everything looks good except windspeed imputes to over 600 m/s = over 1000mph...
-ts_imputed %>% ungroup()%>% summarise(min = min(Windspeed),
-                        max = max(Windspeed),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Bearing_Temp),
-                        max = max(Bearing_Temp),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Generator_RPM),
-                        max = max(Generator_RPM),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Hydraulic_Pressure),
-                        max = max(Hydraulic_Pressure),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Oil_Temp),
-                        max = max(Oil_Temp),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Gearbox_IMS_1),
-                        max = max(Gearbox_IMS_1),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Gearbox_IMS_2),
-                        max = max(Gearbox_IMS_2),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Active_Power),
-                        max = max(Active_Power),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Ambient_Temp),
-                        max = max(Ambient_Temp),)
-ts_imputed %>% ungroup()%>% summarise(min = min(Timestamp),
-                        max = max(Timestamp),)
+write.csv(ts_imputed,paste(path_out,'final_data-v9-lagged-imputed.csv',sep = ''),row.names=FALSE)
 
 ```
 
@@ -677,7 +634,7 @@ ts_imputed %>% ungroup()%>% summarise(min = min(Timestamp),
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 #Read in raw dataset
-db <- read.csv("Data/final_data-v7-imputed.csv", stringsAsFactors = TRUE)
+db <- read.csv("Data/final_data-v9-lagged.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
 db$round_date <- ymd_hms(db$round_date)
@@ -707,64 +664,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = pd.read_csv("Data/final_data-v6-imputed.csv")
+data = pd.read_csv("Data/final_data-v7-lagged.csv")
 db2 = data.drop(columns =['FaultCode']) # these are Categorical 
 
 # Seaborn scatterplot matrix
 sns.pairplot(db2)
 plt.show() #use to show in r mark down. Don't use when knitting to html
-
-
-```
-
-
-### Lag varaibles
-```{r, lag}
-
-# Creating lag variables by 6 hours
-db2 = db %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing, n=24),
-                                          lag_max_bearing = lag(max_bearing, n=24),
-                                          lag_min_bearing = lag(min_bearing, n=24),
-                                          lag_sd_bearing = lag(sd_bearing, n=24),
-                                          lag_mean_hydraulic = lag(mean_hydraulic, n=24),
-                                          lag_max_hydraulic = lag(max_hydraulic, n=24),
-                                          lag_min_hydraulic = lag(min_hydraulic, n=24),
-                                          lag_sd_hydraulic = lag(sd_hydraulic, n=24),
-                                          lag_mean_rpm = lag(mean_rpm, n=24),
-                                          lag_max_rpm = lag(max_rpm, n=24),
-                                          lag_min_rpm = lag(min_rpm, n=24),
-                                          lag_sd_rpm = lag(sd_rpm, n=24),
-                                          lag_mean_oil = lag(mean_oil, n=24),
-                                          lag_max_oil = lag(max_oil, n=24),
-                                          lag_min_oil = lag(min_oil, n=24),
-                                          lag_sd_oil = lag(sd_oil, n=24),
-                                          lag_mean_ims = lag(mean_ims, n=24),
-                                          lag_max_ims = lag(max_ims, n=24),
-                                          lag_min_ims = lag(min_ims, n=24),
-                                          lag_sd_ims = lag(sd_ims, n=24),
-                                          lag_mean_ims2 = lag(mean_ims2, n=24),
-                                          lag_max_ims2 = lag(max_ims2, n=24),
-                                          lag_min_ims2 = lag(min_ims2, n=24),
-                                          lag_sd_ims2 = lag(sd_ims2, n=24),
-                                          lag_mean_active = lag(mean_ims, n=24),
-                                          lag_max_active = lag(max_active, n=24),
-                                          lag_min_active = lag(min_active, n=24),
-                                          lag_sd_active = lag(sd_active, n=24),
-                                          lag_mean_ambient = lag(mean_ambient, n=24),
-                                          lag_max_ambient = lag(max_ambient, n=24),
-                                          lag_min_ambient = lag(min_ambient, n=24),
-                                          lag_sd_ambient = lag(sd_ambient, n=24))
-                                          
-
-db2 = db2 %>% drop_na(lag_min_hydraulic)
-db2 = subset(db2, select=-c(max_bearing,min_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
-# Output Dataset imputed lagged dataset
-write.csv(db2,paste(path_out,'final_data-v7-imputed-lagged.csv',sep = ''),row.names=FALSE)
-
-lagged <- read.csv("Data/final_data-v7-imputed-lagged.csv", stringsAsFactors = TRUE)
-# after reading in, must convert time date again.
-lagged$Timestamp <- ymd_hms(lagged$Timestamp)
-lagged$Date <- ymd(lagged$Date)
 
 
 ```
@@ -821,15 +726,14 @@ grid.arrange(g1, g2,g3)
 ```
 
 ```{r, random_forest}
-#WIP
-# find most effective m
-
-forest_data <- lagged
-forest_data = forest_data %>% mutate(BinaryFault = case_when(FaultCodeType =="Critical" ~ 1,
-                                               .default = 0))
-
+# reading in the lagged and imputed data set
+forest_data <- read.csv("Data/final_data-v8-lagged-imputed.csv", stringsAsFactors = TRUE)
 forest_data$BinaryFault <- as.factor(forest_data$BinaryFault)
-forest_data$Turbine <- as.factor(forest_data$Turbine)
+forest_data$location_id <- as.factor(forest_data$location_id)
+forest_data$round_date <- ymd_hms(forest_data$round_date)
+forest_data$Date <- ymd(forest_data$Date)
+
+#WIP
 
 RNGkind(sample.kind = "default")
 set.seed(231231)

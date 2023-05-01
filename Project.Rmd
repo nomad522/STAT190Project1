@@ -427,8 +427,8 @@ wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed =
 ```{r, joining}
 
 ####Joining datasets------
-fully_joined <- full_join(wind, bearing, by=c('location_id', 'round_date')) %>%
-  full_join(., hydraulic, c('location_id', 'round_date')) %>%
+#not wind speed not joined as there isn't enough data
+fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., rpm, c('location_id', 'round_date')) %>%
   full_join(., oil, c('location_id', 'round_date')) %>%
   full_join(., ims, c('location_id', 'round_date')) %>%
@@ -444,64 +444,7 @@ fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date')
 fully_joined$Date = fully_joined$round_date
 fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 
-
-
-
-#save spot copy of data 
-path_out = 'Data/'
-write.csv(fully_joined,paste(path_out,'final_data-v8.csv',sep = ''),row.names=FALSE)
-
-# load save point
-fully_joined <- read.csv("Data/final_data-v8.csv")
-fully_joined$round_date <- ymd_hms(fully_joined$round_date)
-fully_joined$Date <- ymd(fully_joined$Date)
-
-
 ```
-
-### Lag varaibles
-```{r, lag}
-
-# Creating lag variables by 6 hours
-db2 = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
-                                          lag_max_bearing = lag(max_bearing,n=6),
-                                          lag_min_bearing = lag(min_bearing,n=6),
-                                          lag_sd_bearing = lag(sd_bearing,n=6),
-                                          lag_mean_hydraulic = lag(mean_hydraulic,n=6),
-                                          lag_max_hydraulic = lag(max_hydraulic,n=6),
-                                          lag_min_hydraulic = lag(min_hydraulic,n=6),
-                                          lag_sd_hydraulic = lag(sd_hydraulic,n=6),
-                                          lag_mean_rpm = lag(mean_rpm,n=6),
-                                          lag_max_rpm = lag(max_rpm,n=6),
-                                          lag_min_rpm = lag(min_rpm,n=6),
-                                          lag_sd_rpm = lag(sd_rpm,n=6),
-                                          lag_mean_oil = lag(mean_oil,n=6),
-                                          lag_max_oil = lag(max_oil,n=6),
-                                          lag_min_oil = lag(min_oil,n=6),
-                                          lag_sd_oil = lag(sd_oil,n=6),
-                                          lag_mean_ims = lag(mean_ims,n=6),
-                                          lag_max_ims = lag(max_ims,n=6),
-                                          lag_min_ims = lag(min_ims,n=6),
-                                          lag_sd_ims = lag(sd_ims,n=6),
-                                          lag_mean_ims2 = lag(mean_ims2,n=6),
-                                          lag_max_ims2 = lag(max_ims2,n=6),
-                                          lag_min_ims2 = lag(min_ims2,n=6),
-                                          lag_sd_ims2 = lag(sd_ims2,n=6),
-                                          lag_mean_active = lag(mean_ims,n=6),
-                                          lag_max_active = lag(max_active,n=6),
-                                          lag_min_active = lag(min_active,n=6),
-                                          lag_sd_active = lag(sd_active,n=6),
-                                          lag_mean_ambient = lag(mean_ambient,n=6),
-                                          lag_max_ambient = lag(max_ambient,n=6),
-                                          lag_min_ambient = lag(min_ambient,n=6),
-                                          lag_sd_ambient = lag(sd_ambient,n=6))
-                                          
-
-db2 = db2 %>% drop_na(lag_min_hydraulic)
-db2 = subset(db2, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
-
-```
-
 
 ```{r fault code Descriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
@@ -513,7 +456,7 @@ unique(fully_joined$Description)
 
 # Creating categorical variable FaultCodeType.
 #grep()
-lagged = lagged %>%mutate(FaultCodeType =
+fully_joined = fully_joined %>%mutate(FaultCodeType =
   case_when(
   Description == "Gear Oil Temperature High"~"Critical",
   Description == "Gear Oil Pressure Too High/Low"~"Critical",
@@ -583,32 +526,81 @@ lagged = lagged %>%mutate(FaultCodeType =
 ))
 
 # creating a binary y variable, only for the fault codes that were determined by Daniel as being bad
-lagged = lagged %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
+fully_joined = fully_joined %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
                                                .default = 0))
-# removing windspeed, there just isn't enough data
-lagged = subset(lagged, select =-c(mean_windspeed, max_windspeed, min_windspeed, sd_windspeed))
 
-# Output lagged dataset with FaultCodeType and BinaryFault.
-write.csv(db2,paste(path_out,'final_data-v9-lagged.csv',sep = ''),row.names=FALSE)
+# Output joined dataset with FaultCodeType and BinaryFault.
+write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.names=FALSE)
 
-lagged <- read.csv("Data/final_data-v8-lagged.csv", stringsAsFactors = TRUE)
+
+fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TRUE)
+# after reading in, must convert time date again.
+fully_joined$round_date <- ymd_hms(fully_joined$round_date)
+fully_joined$Date <- ymd(fully_joined$Date)
+
+```
+
+### Lag varaibles
+```{r, lag}
+
+# Creating lag variables by 6 hours
+lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
+                                          lag_max_bearing = lag(max_bearing,n=6),
+                                          lag_min_bearing = lag(min_bearing,n=6),
+                                          lag_sd_bearing = lag(sd_bearing,n=6),
+                                          lag_mean_hydraulic = lag(mean_hydraulic,n=6),
+                                          lag_max_hydraulic = lag(max_hydraulic,n=6),
+                                          lag_min_hydraulic = lag(min_hydraulic,n=6),
+                                          lag_sd_hydraulic = lag(sd_hydraulic,n=6),
+                                          lag_mean_rpm = lag(mean_rpm,n=6),
+                                          lag_max_rpm = lag(max_rpm,n=6),
+                                          lag_min_rpm = lag(min_rpm,n=6),
+                                          lag_sd_rpm = lag(sd_rpm,n=6),
+                                          lag_mean_oil = lag(mean_oil,n=6),
+                                          lag_max_oil = lag(max_oil,n=6),
+                                          lag_min_oil = lag(min_oil,n=6),
+                                          lag_sd_oil = lag(sd_oil,n=6),
+                                          lag_mean_ims = lag(mean_ims,n=6),
+                                          lag_max_ims = lag(max_ims,n=6),
+                                          lag_min_ims = lag(min_ims,n=6),
+                                          lag_sd_ims = lag(sd_ims,n=6),
+                                          lag_mean_ims2 = lag(mean_ims2,n=6),
+                                          lag_max_ims2 = lag(max_ims2,n=6),
+                                          lag_min_ims2 = lag(min_ims2,n=6),
+                                          lag_sd_ims2 = lag(sd_ims2,n=6),
+                                          lag_mean_active = lag(mean_ims,n=6),
+                                          lag_max_active = lag(max_active,n=6),
+                                          lag_min_active = lag(min_active,n=6),
+                                          lag_sd_active = lag(sd_active,n=6),
+                                          lag_mean_ambient = lag(mean_ambient,n=6),
+                                          lag_max_ambient = lag(max_ambient,n=6),
+                                          lag_min_ambient = lag(min_ambient,n=6),
+                                          lag_sd_ambient = lag(sd_ambient,n=6))
+lagged = lagged %>% drop_na(lag_min_hydraulic)                                          
+
+# Output joined and lagged dataset with FaultCodeType and BinaryFault. This should be for graphs.
+write.csv(lagged,paste(path_out,'final_data-v10-joined-lagged.csv',sep = ''),row.names=FALSE)
+
+
+lagged <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
 # after reading in, must convert time date again.
 lagged$round_date <- ymd_hms(lagged$round_date)
 lagged$Date <- ymd(lagged$Date)
 
+
 ```
 
-```{r output file, eval=FALSE}
+
+```{r impute, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
+ts_imputed = subset(lagged, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
 
-# Declare imputed data frame
-ts_imputed = lagged
 # list of turbines
 turbine_list = unique(ts_imputed$location_id)
 ts_imputed = arrange(ts_imputed, location_id, round_date)
 # list of sensory columns names
-column_list = colnames(ts_imputed)[c(7:38)]
+column_list = colnames(ts_imputed)[c(9:40)]
 
 # iterate through turbines then through each imputing column
 for (i in 1:length(turbine_list)){
@@ -626,22 +618,23 @@ for (i in 1:length(turbine_list)){
 
 }
 
-# Output Dataset imputed
-write.csv(ts_imputed,paste(path_out,'final_data-v9-lagged-imputed.csv',sep = ''),row.names=FALSE)
+# Output Dataset imputed. This is for the random forest
+write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
 
 ```
 
 ## Matrix
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
-#Read in raw dataset
-db <- read.csv("Data/final_data-v9-lagged.csv", stringsAsFactors = TRUE)
+
+#uses the unimputed dataset
+matrix <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
 
 # after reading in, must convert time date again.
-db$round_date <- ymd_hms(db$round_date)
-db$Date <- ymd(db$Date)
+matrix$round_date <- ymd_hms(matrix$round_date)
+matrix$Date <- ymd(matrix$Date)
 
-numeric <- dplyr::select_if(db, is.numeric)
+numeric <- dplyr::select_if(matrix, is.numeric)
 numeric <- subset(numeric, select =-c(FaultCode)) # These are technically a categorical variable
 r <- cor(numeric, use="pairwise.complete.obs")
 round(r,2)
@@ -665,8 +658,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = pd.read_csv("Data/final_data-v7-lagged.csv")
-db2 = data.drop(columns =['FaultCode']) # these are Categorical 
+data = numeric
+db2 = data.drop(columns =['BinaryFault']) # these are Categorical 
 
 # Seaborn scatterplot matrix
 sns.pairplot(db2)
@@ -678,15 +671,17 @@ plt.show() #use to show in r mark down. Don't use when knitting to html
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
+#uses the unimputed dataset
+graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
 
 
-g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
-       aes(x=Generator_RPM ,
-           y=Active_Power,
+g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
+       aes(x=mean_rpm ,
+           y=mean_active,
            color = FaultCodeType,
            alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
-  xlab("Genorator RPM")+
+  xlab("Generator RPM")+
   ylab("Active Power")+
   scale_x_continuous(limits = c(500, 1400))+
   theme_bw()+
@@ -695,9 +690,9 @@ g1 = ggplot(db %>%arrange(desc(FaultCodeType)),
   geom_point()+ 
   scale_alpha_manual(values=c(1,0.05,1))
 
-g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
-       aes(x=Generator_RPM,
-           y=Active_Power,
+g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
+       aes(x=mean_rpm,
+           y=mean_active,
            color = FaultCodeType,
            alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
@@ -710,18 +705,7 @@ g2 = ggplot(db %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
 
-  ggplot(fully_joined %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
-       aes(x=Timestamp,
-           y=Bearing_Temp,))+
-  ggtitle("Bearing Temp Time Series")+
-  xlab("Date")+
-  ylab("Temperature")+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_line()
-
-
-grid.arrange(g1, g2,g3)
+grid.arrange(g1,g2)
 
 
 ```

@@ -671,10 +671,11 @@ plt.show() #use to show in r mark down. Don't use when knitting to html
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
-#uses the unimputed dataset
+# uses the unimputed data set. This data set has both the ageragted data (by the mean, max, min, and standard deviation) for 1 
+# hour intervals and that data lagged by 6 hours
 graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
 
-
+# graphing the mean active power and mean rpm of one hour intervals, colored by whether they are critical, warnings or other fault codes
 g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
        aes(x=mean_rpm ,
            y=mean_active,
@@ -690,6 +691,7 @@ g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
   geom_point()+ 
   scale_alpha_manual(values=c(1,0.05,1))
 
+# graphing the mean active power and mean rpm of one hour intervals, colored by just they are critical and what may be warnings of critical fault codes
 g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
        aes(x=mean_rpm,
            y=mean_active,
@@ -712,7 +714,7 @@ grid.arrange(g1,g2)
 
 ```{r, random_forest}
 # reading in the lagged and imputed data set
-forest_data <- read.csv("Data/final_data-v8-lagged-imputed.csv", stringsAsFactors = TRUE)
+forest_data <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
 forest_data$BinaryFault <- as.factor(forest_data$BinaryFault)
 forest_data$location_id <- as.factor(forest_data$location_id)
 forest_data$round_date <- ymd_hms(forest_data$round_date)
@@ -729,15 +731,15 @@ train.df <- forest_data[train.idx, ]
 test.df <- forest_data[-train.idx, ]
 
 
-mtry <- c(1:8) # The maximum number of x variables are 8
+mtry <- c(1:32) # The maximum number of independent variables are 32
 keeps = data.frame(m = rep(NA, length(mtry)),
                    OOB_error_rate = rep(NA, length(mtry)))
-
+excluded_columns = names(train.df[1:7])
 for (idx in 1:length(mtry)){
   print(paste0("fitting m = ", mtry[idx]))
   
-  tempForest  = randomForest(BinaryFault ~ Turbine + lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower,
-                             data = train.df,
+  tempForest  = randomForest(BinaryFault ~ .,
+                             data = train.df[ !names(train.df) %in% excluded_columns],
                              ntree = 1000,
                              mtry = mtry[idx])
   keeps[idx, "m"] = mtry[idx]
@@ -745,19 +747,19 @@ for (idx in 1:length(mtry)){
 }
 
 keeps
-#plot
+# plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
 ggplot(data = keeps)+
   geom_line(aes(x = m, y = OOB_error_rate))+
-  scale_x_continuous(breaks = c(1:8))+
+  scale_x_continuous(breaks = c(1:10))+
   labs(x = "m (mtry): # of x variables sampled",
        y = "OOB Error rate")
 
-# The smallest oob error with the Fault Code event is m = 4 or 6. 
-finalForest <- randomForest(BinaryFault ~ lagHSB + lagPressure + lagRPM + lagOil + lagIMS1 + lagIMS2 + lagPower, # dangers here
-             data = train.df,
-             ntree = 1000, # b
-             mtry = 4,
-             importance = TRUE)
+# The smallest oob error is with 1 variable... 
+finalForest <- randomForest(BinaryFault ~ .,
+                             data = train.df[ !names(train.df) %in% excluded_columns],
+                             ntree = 1000,
+                             mtry = 1,
+                            importance = TRUE)
 finalForest
 
 pi_hat = predict(finalForest, test.df, type="prob")[,1]
@@ -768,8 +770,37 @@ rocCurve = roc(response = test.df$BinaryFault,
                levels=c(0,1))
 plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
 
+# Specificity = .973
+# Sensitivity = .385
+# AUC = .690
+# This means the model will predict a critical fault code 38.5% of the time correctly when there is actually a critical issue and
+# that the model will predict non critical occurrences 97.5% of the time correctly when there is actually no critical issues.
+
 pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
 test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
 
-varImpPlot(finalForest, type = 1)
+
+
+### Variable importance plot
+#setting a variable to the variable importance plot
+imp = varImpPlot(finalForest, type = 1)
+# Creating data frame from Variable Importance plot to use in ggplot for a customization
+imp = as.data.frame(imp)
+imp$varnames = rownames(imp) # row names to column
+rownames(imp) = NULL  
+# new data frame for the top 10 Important variables
+varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
+  geom_bar(fill = "#0077C8") +
+  labs(title="Variable importance",
+       subtitle="Top 10 important variables")+
+  ylab("MeanDecreaseAccuracy") +
+  xlab("Variables")+
+  theme(
+    axis.title.y = element_text(vjust = +3),
+    axis.title.x = element_text(vjust = -1.75),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank())+
+  coord_flip()
 ```

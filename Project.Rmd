@@ -427,7 +427,7 @@ wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed =
 ```{r, joining}
 
 ####Joining datasets------
-#not wind speed not joined as there isn't enough data
+# wind speed not joined as there isn't enough data
 fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date')) %>%
   full_join(., rpm, c('location_id', 'round_date')) %>%
   full_join(., oil, c('location_id', 'round_date')) %>%
@@ -439,8 +439,8 @@ fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date'))
 fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date'))
 
 
-#Note Date should be the just the ymd the same as round_date's ymd_hms, but since during aggregation something like 23:57 would be rounded to 00:00am of the next day,
-# but would have the previous date in Date and the next day's date in round_date. We will just fix that.
+#Note Date should be the just the ymd, the same as round_date's ymd_hms, but since during aggregation something like 23:57 would be rounded to 00:00am of the next day,
+# but would have the previous date,ymd, in Date and the next day's,ymd, date in round_date. We will just fix that.
 fully_joined$Date = fully_joined$round_date
 fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 

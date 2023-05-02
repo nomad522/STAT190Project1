@@ -803,4 +803,6 @@ ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecr
     panel.grid.minor = element_blank(),
     panel.background = element_blank())+
   coord_flip()
+# We can see that the most important variable is the standard deviation of IMS bearing 1
+
 ```

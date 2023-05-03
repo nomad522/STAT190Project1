@@ -1,808 +1,1652 @@
----
-title: "Project 1"
-author: "Chris Cavan, Marshall Ndhlovu, Noah Maddio, Nathan Gottwals"
-date: "`r Sys.Date()`"
-output:
-  html_document: default
-  word_document: default
-  pdf_document: default
-editor_options:
-  chunk_output_type: inline
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## Data Processing
-
-```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
-rm(list = ls())
-# libraries 
-library(tidyverse)
-library(lubridate)
-library(dplyr)
-library(ggcorrplot)
-library(gridExtra)
-library(tidyr)
-library(ggplot2)
-library(RColorBrewer)
-library(reticulate)
-library(fuzzywuzzyR)
-library(plotly)
-library(GGally)
-library(imputeTS)
-library(randomForest)
-library(TSstudio)
-library(randomForest) #to fit random forest
-library(pROC) # for ROC curves
-library(rlist)
-
-# In reticulate's python environment install (from the r terminal):
-# numpy
-# polyfuzz
-# seaborn
-# pandas
-# matplotlib
-
-# python modules 
-DIFFLIB <- reticulate::import("difflib")
-POLYFUZZ <- reticulate::import("polyfuzz")
-
-
-```
-All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:\
-
-**Work order**
-
-+ Data/Wind Turbine Data Batch 2/Work Order
-  
-**Active Power**
-
-+ Data/Wind Turbine Data Batch 2/Active Power
-  
-**Gearbox HS Bearing Temperature**
-  
-+ Data/Wind Turbine Data Batch 2/Gearbox HS Bearing
-  
-**Gearbox IMS Bearing 1**
-  
-+ Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1
-  
-**Gearbox IMS Bearing 2**
-  
-+ Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2
-  
-**Gearbox Oil**
-
-+ Gearbox Oil
-  
-**Generator RPM**
-
-+ Data/Wind Turbine Data Batch 2/Gearbox RPM
-  
-**Hydraulic Pressure**
-
-+ Data/Wind Turbine Data Batch 2/Hydraulic Pressure
-  
-**Windspeed**
-
-+ Data/Wind Turbine Data Batch 2/Windspeed
-
-#Reading in the data and cleaning
-The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
-then aggregated by the average in 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
-
-
-```{r data_processing, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
-
-
-#####workorder------------
-# gets a list of all of the csv files in the directory
-wo_files = list.files("Data/Wind Turbine Data Batch 2/Work Order", pattern="*.csv")
-# declaring a list and then adding files names of csvs to that list that have a file size larger than 1
-wo_list = list()
-for (i in 1:length(wo_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_files[i])) >1){
-    wo_list = c(wo_list, wo_files[i])
-  }
-}
-# reading in the first non empty csv from the list to a dataframe
-wo = read.csv(paste0("Data/Wind Turbine Data Batch 2/Work Order/", wo_list[1]), header = TRUE)
-# adding the rest of the csvs from the list
-# There is only one. There rest of the sensory data has multiple so there is a loop for that
-
-# work order exploration and data cleaning
-# cause_code all null
-#table(wo$cause_code)
-# start date is character
-#convert start and finish columns to date objects
-wo$wo_start_date = ymd_hms(wo$wo_start_date)
-# end date is also character
-#convert start and finish columns to date objects
-wo$wo_finish_date = ymd_hms(wo$wo_finish_date)
-#table(wo$cause_code)
-
-# This first converts the string "null" into a NA value. Then by grouping of OrderNo, fills in NA's with existing values of component_type, within a OrderNo if they exist. Then distinct() is ran to keep only unique rows. This allows us to keep unique work order numbers with component types when it is available. 
-workorder = wo %>% 
-    mutate(component_type = case_when(component_type == "null" ~ NA_character_,
-                               TRUE ~ component_type)) %>% 
-    group_by(OrderNo) %>% 
-    fill(component_type, .direction = 'up') %>% 
-    fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
-# compared to this which just keeps distinct OrderNo regardless of other variables, causing us to lose most of the component_type 
-# test = distinct(wo, OrderNo, .keep_all = TRUE)
-
-str(workorder)
-
-#### fault code---------------- 
-fault_files = list.files("Data/Wind Turbine Data Batch 2/Fault Status Codes", pattern="*.csv")
-fault_list = list()
-for (i in 1:length(fault_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Fault Status Codes/", fault_files[i])) >1){
-    fault_list = c(fault_list, fault_files[i])
-  }
-}
-fault = read.csv(paste0("Data/Wind Turbine Data Batch 2/Fault Status Codes/", fault_list[1]), header = FALSE)
-for (i in 2:length(fault_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Fault Status Codes/", fault_list[i]), header = FALSE)
-  fault = rbind(fault, new)
-}
-#renaming column headers
-names(fault) <- c("location_id", "DateTime", "Date", "FaultCode", "StatusCode", "Description", "Type")
-
-fault$DateTime <- ymd_hms(fault$DateTime)
-fault$Date <- ymd(fault$Date)
-
-#------------------------------Remove duplicates of fault code pinging for consecutive intervals---------------####
-# order fault data by turbine, date, and fault code
-fault <- fault[order(fault$location_id, fault$Date, fault$FaultCode),]
-# create new time difference variable to help remove duplicates
-fault$Time_Diff = NA
-
-
-# The first occurrence of a fault will have a 0 for time difference
-for(i in 2:length(fault$Date)){
-  # take time difference of two lines if they are the same fault code and same turbine id
-  if (fault$location_id[i] == fault$location_id[i-1] && fault$FaultCode[i] == fault$FaultCode[i-1]){
-    fault$Time_Diff[i] = as.numeric(difftime(fault$Date[i], fault$Date[i-1], 'days'))
-  }
-  # new faults or turbines (different from previous row) will start again at 0
-  else fault$Time_Diff[i] = 0 # 0 does not matter because it will not be used for removal
-}
-
-# set first line time difference to 0
-fault$Time_Diff[1] = 0
-
-# remove duplicates on the same day (only keep first occurrence of certain fault on a day)
-fault <- fault[!duplicated(fault[c("location_id", "Date", "FaultCode")]),]
-
-# remove duplicates of the same fault rolling into the next day and every consecutive day
-# example: on the first line where the same fault rolls over into the next day, the time difference from the previous
-#   line will be 1. Every other occurrence on the same day was already removed, but the next day where it rolled over
-#   will also have a 1. Thus, remove all 1's so the only thing that stands was the first occurrence in the entire series
-#   of intervals.
-fault <- fault %>% filter(Time_Diff != 1)
-
-
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-fault$round_date <- lubridate::round_date(fault$DateTime, "60 minutes")
-## keeping only one observation of each fault code of each turbine's 60 minutes interval
-fault <- fault %>% distinct(location_id, round_date,FaultCode, .keep_all = TRUE)
-# removing unused columns
-fault = subset(fault, select=-c(Time_Diff,DateTime,Date,StatusCode))
-
-
-#### Gearbox HS Bearing Temperature---------------- 
-bearing_files = list.files("Data/Wind Turbine Data Batch 2/Gearbox HS Bearing", pattern="*.csv")
-bearing_list = list()
-for (i in 1:length(bearing_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Gearbox HS Bearing/", bearing_files[i])) >1){
-    bearing_list = c(bearing_list, bearing_files[i])
-  }
-}
-bearing = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox HS Bearing/", bearing_list[1]), header = FALSE)
-for (i in 2:length(bearing_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox HS Bearing/", bearing_list[i]), header = FALSE)
-  bearing = rbind(bearing, new)
-}
-#convert Datetime from char to date
-bearing$V2 <- ymd_hms(bearing$V2)
-#renaming column headers
-names(bearing) <- c("location_id", "DateTime", "Date", "Temperature", "Bearing HS")
-# sorting data by turbine, then the DateTime.
-bearing <- bearing %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-bearing$round_date <- lubridate::round_date(bearing$DateTime, "60 minutes")
-#adding mean, max, min and sd of the 60 minutes intervals and dropping columns
-bearing <-bearing %>% group_by(location_id, round_date) %>% summarise(mean_bearing = mean(Temperature), max_bearing = max(Temperature), min_bearing = min(Temperature), sd_bearing = sd(Temperature), .groups = 'drop') %>% as.data.frame
-
-
-
-#### Gearbox IMS Bearing  1 Temperature---------------- 
-ims_files = list.files("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1", pattern="*.csv")
-ims_list = list()
-for (i in 1:length(ims_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1/", ims_files[i])) >1){
-    ims_list = c(ims_list, ims_files[i])
-  }
-}
-ims = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1/", ims_list[1]), header = FALSE)
-for (i in 2:length(ims_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1/", ims_list[i]), header = FALSE)
-  ims = rbind(ims, new)
-}
-#convert Datetime from char to date
-ims$V2 <- ymd_hms(ims$V2)
-#renaming column headers
-names(ims) <- c("location_id", "DateTime", "Date", "Temperature", "ims")
-# sorting data by turbine, then the DateTime.
-ims <- ims %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-ims$round_date <- lubridate::round_date(ims$DateTime, "60 minutes")
-#adding mean, max, min and sd ims bearing temp of the 60 minutes intervals and dropping columns
-ims <-ims %>% group_by(location_id, round_date) %>% summarise(mean_ims = mean(Temperature), max_ims = max(Temperature), min_ims = min(Temperature), sd_ims = sd(Temperature), .groups = 'drop') %>% as.data.frame
-
-
-#### Gearbox IMS Bearing  2 Temperature---------------- 
-ims_files2 = list.files("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2", pattern="*.csv")
-ims_list2 = list()
-for (i in 1:length(ims_files2)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2/", ims_files2[i])) >1){
-    ims_list2 = c(ims_list2, ims_files2[i])
-  }
-}
-ims2 = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2/", ims_list2[1]), header = FALSE)
-for (i in 2:length(ims_list2)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2/", ims_list2[i]), header = FALSE)
-  ims2 = rbind(ims2, new)
-}
-#convert Datetime from char to date
-ims2$V2 <- ymd_hms(ims2$V2)
-#renaming column headers
-names(ims2) <- c("location_id", "DateTime", "Date", "Temperature", "ims_2")
-# sorting data by turbine, then the DateTime.
-ims2 <- ims2 %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-ims2$round_date <- lubridate::round_date(ims2$DateTime, "60 minutes")
-#adding mean, max, min and sd ims2 bearing temp of the 60 minutes intervals and dropping columns
-ims2 <-ims2 %>% group_by(location_id, round_date) %>% summarise(mean_ims2 = mean(Temperature), max_ims2 = max(Temperature), min_ims2 = min(Temperature), sd_ims2 = sd(Temperature), .groups = 'drop') %>% as.data.frame
-
-
-#### Gearbox Oil---------------- 
-oil_files = list.files("Data/Wind Turbine Data Batch 2/Gearbox Oil", pattern="*.csv")
-oil_list = list()
-for (i in 1:length(oil_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Gearbox Oil/", oil_files[i])) >1){
-    oil_list = c(oil_list, oil_files[i])
-  }
-}
-oil = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox Oil/", oil_list[1]), header = FALSE)
-for (i in 2:length(oil_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Gearbox Oil/", oil_list[i]), header = FALSE)
-  oil = rbind(oil, new)
-}
-#convert Datetime from char to date
-oil$V2 <- ymd_hms(oil$V2)
-#renaming column headers
-names(oil) <- c("location_id", "DateTime", "Date", "Temperature", "oil")
-# sorting data by turbine, then the DateTime.
-oil <- oil %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-oil$round_date <- lubridate::round_date(oil$DateTime, "60 minutes")
-#adding mean, max, min and sd oil temp of the 60 minutes intervals and dropping columns
-oil <-oil %>% group_by(location_id, round_date) %>% summarise(mean_oil = mean(Temperature), max_oil = max(Temperature), min_oil = min(Temperature), sd_oil = sd(Temperature), .groups = 'drop') %>% as.data.frame
-
-
-#### Generator RPM---------------- 
-rpm_files = list.files("Data/Wind Turbine Data Batch 2/Generator RPM", pattern="*.csv")
-rpm_list = list()
-for (i in 1:length(rpm_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Generator RPM/", rpm_files[i])) >1){
-    rpm_list = c(rpm_list, rpm_files[i])
-  }
-}
-rpm = read.csv(paste0("Data/Wind Turbine Data Batch 2/Generator RPM/", rpm_list[1]), header = FALSE)
-for (i in 2:length(rpm_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Generator RPM/", rpm_list[i]), header = FALSE)
-  rpm = rbind(rpm, new)
-}
-#convert Datetime from char to date
-rpm$V2 <- ymd_hms(rpm$V2)
-#renaming column headers
-names(rpm) <- c("location_id", "DateTime", "Date", "RPM", "Generator rpm")
-# sorting data by turbine, then the DateTime.
-rpm <- rpm %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-rpm$round_date <- lubridate::round_date(rpm$DateTime, "60 minutes")
-# adding mean, max, min and sd rpm of the 60 minutes intervals and dropping columns
-# Removing keeping only one observation of the mean for each turbine's 60 minutes interval
-rpm <-rpm %>% group_by(location_id, round_date) %>% summarise(mean_rpm = mean(RPM), max_rpm = max(RPM), min_rpm = min(RPM), sd_rpm = sd(RPM), .groups = 'drop') %>% as.data.frame
-
-
-
-#### Hydraulic Pressure---------------- 
-hydraulic_files = list.files("Data/Wind Turbine Data Batch 2/Hydraulic Pressure", pattern="*.csv")
-hydraulic_list = list()
-for (i in 1:length(hydraulic_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Hydraulic Pressure/", hydraulic_files[i])) >1){
-    hydraulic_list = c(hydraulic_list, hydraulic_files[i])
-  }
-}
-hydraulic = read.csv(paste0("Data/Wind Turbine Data Batch 2/Hydraulic Pressure/", hydraulic_list[1]), header = FALSE)
-for (i in 2:length(hydraulic_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Hydraulic Pressure/", hydraulic_list[i]), header = FALSE)
-  hydraulic = rbind(hydraulic, new)
-}
-#convert Datetime from char to date
-hydraulic$V2 <- ymd_hms(hydraulic$V2)
-#renaming column headers
-names(hydraulic) <- c("location_id", "DateTime", "Date", "Pressure", "Hydraulic Pressure")
-# sorting data by turbine, then the DateTime.
-hydraulic <- hydraulic %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-hydraulic$round_date <- lubridate::round_date(hydraulic$DateTime, "60 minutes")
-#adding mean, max, min and sd of hydraulic pressure of the 60 minutes intervals and dropping columns
-hydraulic <-hydraulic %>% group_by(location_id, round_date) %>% summarise(mean_hydraulic = mean(Pressure), max_hydraulic = max(Pressure), min_hydraulic = min(Pressure), sd_hydraulic = sd(Pressure), .groups = 'drop') %>% as.data.frame
-
-
-#### active power-------------- 
-active_files = list.files("Data/Wind Turbine Data Batch 2/Active Power", pattern="*.csv")
-active_list = list()
-for (i in 1:length(active_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Active Power/", active_files[i])) >1){
-    active_list = c(active_list, active_files[i])
-  }
-}
-active = read.csv(paste0("Data/Wind Turbine Data Batch 2/Active Power/", active_list[1]), header = FALSE)
-for (i in 2:length(active_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Active Power/", active_list[i]), header = FALSE)
-  active = rbind(active, new)
-}
-#convert Datetime from char to date
-active$V2 <- ymd_hms(active$V2)
-#renaming column headers
-names(active) <- c("location_id", "DateTime", "Date", "power", "Active power")
-# sorting data by turbine, then the DateTime.
-active <- active %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-active$round_date <- lubridate::round_date(active$DateTime, "60 minutes")
-# adding mean, max, min and sd active power of the 60 minutes intervals and dropping columns
-active <-active %>% group_by(location_id, round_date) %>% summarise(mean_active = mean(power), max_active = max(power), min_active = min(power), sd_active = sd(power), .groups = 'drop')
-
-
-
-#### Ambient Temperature-------------- 
-ambient_files = list.files("Data/Wind Turbine Data Batch 2/Ambient Temperature", pattern="*.csv")
-ambient_list = list()
-for (i in 1:length(ambient_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Ambient Temperature/", ambient_files[i])) >1){
-    ambient_list = c(ambient_list, ambient_files[i])
-  }
-}
-ambient = read.csv(paste0("Data/Wind Turbine Data Batch 2/Ambient Temperature/", ambient_list[1]), header = FALSE)
-for (i in 2:length(ambient_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Ambient Temperature/", ambient_list[i]), header = FALSE)
-  ambient = rbind(ambient, new)
-}
-#convert Datetime from char to date
-ambient$V2 <- ymd_hms(ambient$V2)
-#renaming column headers
-names(ambient) <- c("location_id", "DateTime", "Date", "ambient_temp", "Ambient Temperature")
-# sorting data by turbine, then the DateTime.
-ambient <- ambient %>% 
-  arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-ambient$round_date <- lubridate::round_date(ambient$DateTime, "60 minutes")
-#adding mean, max, min and sd power of the 60 minutes intervals and dropping columns
-ambient <-ambient %>% group_by(location_id, round_date) %>% summarise(mean_ambient = mean(ambient_temp), max_ambient = max(ambient_temp), min_ambient = min(ambient_temp), sd_ambient = sd(ambient_temp), .groups = 'drop') %>% as.data.frame
-
-#### Wind Speed-------------- 
-wind_files = list.files("Data/Wind Turbine Data Batch 2/Windspeed", pattern="*.csv")
-wind_list = list()
-for (i in 1:length(wind_files)) {
-  if (file.size(paste0("Data/Wind Turbine Data Batch 2/Windspeed/", wind_files[i])) >1){
-    wind_list = c(wind_list, wind_files[i])
-  }
-}
-wind = read.csv(paste0("Data/Wind Turbine Data Batch 2/Windspeed/", wind_list[1]), header = FALSE)
-for (i in 2:length(wind_list)){
-  new = read.csv(paste0("Data/Wind Turbine Data Batch 2/Windspeed/", wind_list[i]), header = FALSE)
-  wind = rbind(wind, new)
-}
-#convert Datetime from char to date
-wind$V2 <- ymd_hms(wind$V2)
-#renaming column headers
-names(wind) <- c("location_id", "DateTime", "Date", "windspeed", "Wind Speed")
-# sorting data by turbine, then the DateTime.
-wind <- wind %>% arrange(location_id, DateTime) %>% distinct()
-#Adding a variable round_date to round times to nearest 60 minutes intervals
-wind$round_date <- lubridate::round_date(wind$DateTime, "60 minutes")
-#adding mean, max, min and sd power of the 60 minutes intervals and dropping columns
-wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed = mean(windspeed), max_windspeed = max(windspeed), min_windspeed = min(windspeed), sd_windspeed = sd(windspeed), .groups = 'drop') %>% as.data.frame()
-
-```
-
-```{r, joining}
-
-####Joining datasets------
-# wind speed not joined as there isn't enough data
-fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date')) %>%
-  full_join(., rpm, c('location_id', 'round_date')) %>%
-  full_join(., oil, c('location_id', 'round_date')) %>%
-  full_join(., ims, c('location_id', 'round_date')) %>%
-  full_join(., ims2, c('location_id', 'round_date')) %>%
-  full_join(., active, c('location_id', 'round_date'))%>%
-  full_join(., ambient, by=c('location_id', 'round_date'))
-
-fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date'))
-
-
-#Note Date should be the just the ymd, the same as round_date's ymd_hms, but since during aggregation something like 23:57 would be rounded to 00:00am of the next day,
-# but would have the previous date,ymd, in Date and the next day's,ymd, date in round_date. We will just fix that.
-fully_joined$Date = fully_joined$round_date
-fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
-
-```
-
-```{r fault code Descriptions, eval=FALSE}
-#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
-
-unique(fully_joined$Description)
-# If the Turbine stops and needs work, it's critical
-# Warning is for what maybe a warning or something.
-# else it is unknown, no fault codes, manual stopped or stopped for some other reason
-
-# Creating categorical variable FaultCodeType.
-#grep()
-fully_joined = fully_joined %>%mutate(FaultCodeType =
-  case_when(
-  Description == "Gear Oil Temperature High"~"Critical",
-  Description == "Gear Oil Pressure Too High/Low"~"Critical",
-  Description == "Converter Tripped, Auto Start"~"Critical",
-  Description == "Mainbreaker Cut Out"~"Critical",
-  Description == "Gear Oil Pump/Blower Superheated"~"Critical",
-  Description == "Ups Bypass Error"~"Critical",
-  Description == "Ups-Failure"~"Critical"  ,
-  Description == "Slip Ring Error"~"Critical",
-  Description == "Osc. In Gen Speed, Cons. Lim"~"Critical",
-  Description == "Ims-Gen Gearbearing Temp Too High"~"Critical",
-  Description == "Ups-Failure"~"Critical",
-  Description == "Hs-Gen Gearbearing Superheated "~"Critical",
-  Description == "Grid Filter Current Overload"~"Critical",
-  Description == "Gearoil Level Too Low"~"Critical",
-  Description == "Rpm Sensor Error"~"Critical",
-  Description == "Srsg Activated"~"Critical",
-  Description == "Lms-Rot Gearbearing Temp Too High"~"Critical",
-  Description == "Gear Oil Temperature Warning"~"Warning",
-  Description == "Converter Trip, External"~"Warning",
-  Description == "Converter Tripped, General"~"Warning",
-  Description == "Main Bearing Temp Too High"~"Warning",
-  Description == "Generator High Speed Waiting"~"Warning",
-  Description == "Inv.(Tow) Cool Water Pres. Warning"~"Warning",
-  Description == "Inv.(Tow) Cool Water Pres. Low"~"Warning",
-  Description == "Tower Conv. Cooling Water Low"~"Warning",
-  Description == "Hydraulic Filter Warning"~"Warning",
-  Description == "Gear Oil Temp Sensor Warning"~"Warning",
-  Description == "Main Bearing Temp Warning"~"Warning",
-  Description == "Lmu Alarm Overspeed"~"Warning",
-  Description == "Brake Pressure Too Low"~"Warning",
-  Description == "Inverter Temperature High"~"Warning",
-  Description == "Grdinv: 38 D1 Volt High"~"Warning",
-  Description == "Grease Level Low, Gen Bearings"~"Warning",
-  Description == "Grdinv: 38 D1 Volt High"~"Warning",
-  Description == "Yaw Limit Sensor Activated"~"Warning",
-  Description == "No Lubrication, Gen Bearings"~"Warning",
-  Description == "Brake (Gen) Temperature Error"~"Warning",
-  Description == "Dc Voltage Low"~"Warning",
-  Description == "Grease Level Low, Hub"~"Warning",
-  Description == "Geninv: 38 D1 Volt High"~"Warning",
-  Description == "Gearoil Level Too Low"~"Warning",
-  Description == "Geninv: 56 D3 Volt High"~"Warning",
-  Description == "Inv. Cooling Water Temp Warning"~"Warning",
-  Description == "Delta Module Temperature High"~"Warning",
-  Description == "Gear Oil Temp Sensor Warning"~"Warning",
-  Description == "Gear Bearing Hs-Gen Sensor Warning"~"Warning",
-  Description == "Gear Bearing Hs-Rot Sensor Warning"~"Warning",
-  Description == "Gear Bearing Ims-Gen Sensor Warning"~"Warning",
-  Description == "Gear Bearing Ims-Rot Sensor Warning"~"Warning",
-  Description == "Hs-Rot Gearbearing Temp Warning"~"Warning",
-  Description == "Fuse Blown, Grid Filter"~"Warning",
-  Description == "Hs-Gen Gearbearing Temp Warning"~"Warning",
-  Description == "High Upper Voltage Exceeded"~"Warning",
-  Description == "Low Lower Voltage Exceeded"~"Warning",
-  Description == "UPS Battery Low, Warning"~"Warning",
-  Description == "Ups Battery Low"~"Warning",
-  Description == "Dc Fuse Blown"~"Warning",
-  Description == "Gear Oil Temperature Low"~"Warning",
-  Description == "Hydraulic Oil Too Cold"~"Warning",
-  Description == "Blown Yaw Brake Fuse"~"Warning",
-  Description == "Too Many Slip Ring Errors"~"Warning",
-  Description == "No Lubrication, Yaw System"~"Warning",
-  Description == "Lmu Sensor Error"~"Warning",
-  Description == "Srsg Activated"~"Warning",
-  .default ="Other"
-))
-
-# creating a binary y variable, only for the fault codes that were determined by Daniel as being bad
-fully_joined = fully_joined %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
-                                               .default = 0))
-
-# Output joined dataset with FaultCodeType and BinaryFault.
-write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.names=FALSE)
-
-
-fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TRUE)
-# after reading in, must convert time date again.
-fully_joined$round_date <- ymd_hms(fully_joined$round_date)
-fully_joined$Date <- ymd(fully_joined$Date)
-
-```
-
-### Lag varaibles
-```{r, lag}
-
-# Creating lag variables by 6 hours
-lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
-                                          lag_max_bearing = lag(max_bearing,n=6),
-                                          lag_min_bearing = lag(min_bearing,n=6),
-                                          lag_sd_bearing = lag(sd_bearing,n=6),
-                                          lag_mean_hydraulic = lag(mean_hydraulic,n=6),
-                                          lag_max_hydraulic = lag(max_hydraulic,n=6),
-                                          lag_min_hydraulic = lag(min_hydraulic,n=6),
-                                          lag_sd_hydraulic = lag(sd_hydraulic,n=6),
-                                          lag_mean_rpm = lag(mean_rpm,n=6),
-                                          lag_max_rpm = lag(max_rpm,n=6),
-                                          lag_min_rpm = lag(min_rpm,n=6),
-                                          lag_sd_rpm = lag(sd_rpm,n=6),
-                                          lag_mean_oil = lag(mean_oil,n=6),
-                                          lag_max_oil = lag(max_oil,n=6),
-                                          lag_min_oil = lag(min_oil,n=6),
-                                          lag_sd_oil = lag(sd_oil,n=6),
-                                          lag_mean_ims = lag(mean_ims,n=6),
-                                          lag_max_ims = lag(max_ims,n=6),
-                                          lag_min_ims = lag(min_ims,n=6),
-                                          lag_sd_ims = lag(sd_ims,n=6),
-                                          lag_mean_ims2 = lag(mean_ims2,n=6),
-                                          lag_max_ims2 = lag(max_ims2,n=6),
-                                          lag_min_ims2 = lag(min_ims2,n=6),
-                                          lag_sd_ims2 = lag(sd_ims2,n=6),
-                                          lag_mean_active = lag(mean_ims,n=6),
-                                          lag_max_active = lag(max_active,n=6),
-                                          lag_min_active = lag(min_active,n=6),
-                                          lag_sd_active = lag(sd_active,n=6),
-                                          lag_mean_ambient = lag(mean_ambient,n=6),
-                                          lag_max_ambient = lag(max_ambient,n=6),
-                                          lag_min_ambient = lag(min_ambient,n=6),
-                                          lag_sd_ambient = lag(sd_ambient,n=6))
-lagged = lagged %>% drop_na(lag_min_hydraulic)                                          
-
-# Output joined and lagged dataset with FaultCodeType and BinaryFault. This should be for graphs.
-write.csv(lagged,paste(path_out,'final_data-v10-joined-lagged.csv',sep = ''),row.names=FALSE)
-
-
-lagged <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
-# after reading in, must convert time date again.
-lagged$round_date <- ymd_hms(lagged$round_date)
-lagged$Date <- ymd(lagged$Date)
-
-
-```
-
-
-```{r impute, eval=FALSE}
-#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
-
-ts_imputed = subset(lagged, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
-
-# list of turbines
-turbine_list = unique(ts_imputed$location_id)
-ts_imputed = arrange(ts_imputed, location_id, round_date)
-# list of sensory columns names
-column_list = colnames(ts_imputed)[c(9:40)]
-
-# iterate through turbines then through each imputing column
-for (i in 1:length(turbine_list)){
- print(paste0("imputing turbine: ", i))
- #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
- x = subset(lagged, location_id == turbine_list[i])
- for (j in column_list){
-  print(paste0("imputing column: ", j))
-  # use this time series imputing algorithm to fill in missing values
-  imp = na_kalman(x[,j])
-  # put data back into bhedata and we have a new dataframe that is all imputed!!!
-  ts_imputed[ts_imputed$location_id == turbine_list[i],j] <- imp
-
- }
-
-}
-
-# Output Dataset imputed. This is for the random forest
-write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
-
-```
-
-## Matrix
-
-```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
-
-#uses the unimputed dataset
-matrix <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
-
-# after reading in, must convert time date again.
-matrix$round_date <- ymd_hms(matrix$round_date)
-matrix$Date <- ymd(matrix$Date)
-
-numeric <- dplyr::select_if(matrix, is.numeric)
-numeric <- subset(numeric, select =-c(FaultCode)) # These are technically a categorical variable
-r <- cor(numeric, use="pairwise.complete.obs")
-round(r,2)
-ggcorrplot(r) + labs(title = "Correlation matrix")      
-
-
-scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
-# shouldn't run as it will freeze, instead used python with seaborn for a scatterplot matrix in the next code cluster
-# ggplotly(scatter_matrix)
-
-#Notes:
-# We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .94.
-# We can see that Active Power is also directly related to the Generator RPM at .94. Which seems right.
-# We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power. Probably due to a lack of wind data
-
-
-```
-
-```{python, scatterplotmatrix}
-import seaborn as sns
-import matplotlib.pyplot as plt
-import pandas as pd
-
-data = numeric
-db2 = data.drop(columns =['BinaryFault']) # these are Categorical 
-
-# Seaborn scatterplot matrix
-sns.pairplot(db2)
-plt.show() #use to show in r mark down. Don't use when knitting to html
-
-
-```
-
-
-## Multivariate
-```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
-# uses the unimputed data set. This data set has both the ageragted data (by the mean, max, min, and standard deviation) for 1 
-# hour intervals and that data lagged by 6 hours
-graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
-
-# graphing the mean active power and mean rpm of one hour intervals, colored by whether they are critical, warnings or other fault codes
-g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
-       aes(x=mean_rpm ,
-           y=mean_active,
-           color = FaultCodeType,
-           alpha = FaultCodeType))+
-  ggtitle("Active Power Vs Generator RPM")+
-  xlab("Generator RPM")+
-  ylab("Active Power")+
-  scale_x_continuous(limits = c(500, 1400))+
-  theme_bw()+
-  scale_colour_manual(values = c("#DC267F", "#648FFF", "#FFB000"))+
-  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_point()+ 
-  scale_alpha_manual(values=c(1,0.05,1))
-
-# graphing the mean active power and mean rpm of one hour intervals, colored by just they are critical and what may be warnings of critical fault codes
-g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
-       aes(x=mean_rpm,
-           y=mean_active,
-           color = FaultCodeType,
-           alpha = FaultCodeType))+
-  ggtitle("Active Power Vs Generator RPM")+
-  xlab("Genorator RPM")+
-  ylab("Active Power")+
-  scale_x_continuous(limits = c(500, 1400))+
-  theme_bw()+
-  scale_colour_manual(values = c("#DC267F", "#FFB000"))+
-  scale_alpha_manual(values=c(1,0.05))+
-  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
-  geom_point()
-
-grid.arrange(g1,g2)
-
-
-```
-
-```{r, random_forest}
-# reading in the lagged and imputed data set
-forest_data <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
-forest_data$BinaryFault <- as.factor(forest_data$BinaryFault)
-forest_data$location_id <- as.factor(forest_data$location_id)
-forest_data$round_date <- ymd_hms(forest_data$round_date)
-forest_data$Date <- ymd(forest_data$Date)
-
-#WIP
-
-RNGkind(sample.kind = "default")
-set.seed(231231)
-train.idx <- sample(x = 1 : nrow(forest_data), size = .8*nrow(forest_data))
-# make training data
-train.df <- forest_data[train.idx, ]
-#make testing data
-test.df <- forest_data[-train.idx, ]
-
-
-mtry <- c(1:32) # The maximum number of independent variables are 32
-keeps = data.frame(m = rep(NA, length(mtry)),
-                   OOB_error_rate = rep(NA, length(mtry)))
-# getting the names of the columns we do not need in the model
-excluded_columns = names(train.df[1:7])
-for (idx in 1:length(mtry)){
-  print(paste0("fitting m = ", mtry[idx]))
-  
-  tempForest  = randomForest(BinaryFault ~ .,
-                             data = train.df[ !names(train.df) %in% excluded_columns], # excluding the names of the columns we are not using.
-                             ntree = 1000,
-                             mtry = mtry[idx])
-  keeps[idx, "m"] = mtry[idx]
-  keeps[idx, "OOB_error_rate"] = mean(predict(tempForest) != train.df$BinaryFault)
-}
-
-keeps
-# plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
-ggplot(data = keeps)+
-  geom_line(aes(x = m, y = OOB_error_rate))+
-  scale_x_continuous(breaks = c(1:10))+
-  labs(x = "m (mtry): # of x variables sampled",
-       y = "OOB Error rate")
-
-# The smallest oob error is with 1 variable... 
-finalForest <- randomForest(BinaryFault ~ .,
-                             data = train.df[ !names(train.df) %in% excluded_columns],
-                             ntree = 1000,
-                             mtry = 1,
-                            importance = TRUE)
-finalForest
-
-pi_hat = predict(finalForest, test.df, type="prob")[,1]
-#pit_hat is now a vector of predicted probabilities (of 1, critical fault codes)
-
-rocCurve = roc(response = test.df$BinaryFault,
-               predictor = pi_hat,
-               levels=c(0,1))
-plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
-
-# Specificity = .973
-# Sensitivity = .385
-# AUC = .690
-# This means the model will predict a critical fault code 38.5% of the time correctly when there is actually a critical issue and
-# that the model will predict non critical occurrences 97.5% of the time correctly when there is actually non critical occurrences.
-
-pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
-test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
-
-
-### Variable importance plot
-#setting a variable to the variable importance plot
-imp = varImpPlot(finalForest, type = 1)
-# Creating data frame from Variable Importance plot to use in ggplot for a customization
-imp = as.data.frame(imp)
-imp$varnames = rownames(imp) # row names to column
-rownames(imp) = NULL  
-# new data frame for the top 10 Important variables
-varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
-ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
-  geom_bar(fill = "#0077C8") +
-  labs(title="Variable importance",
-       subtitle="Top 10 important variables")+
-  ylab("MeanDecreaseAccuracy") +
-  xlab("Variables")+
-  theme(
-    axis.title.y = element_text(vjust = +3),
-    axis.title.x = element_text(vjust = -1.75),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank())+
-  coord_flip()
-# We can see that the most important variable is the standard deviation of IMS bearing 1
-
-```
+Show in New Window
+  [1] NA                                   "No Lubrication, Blade C"            "Yaw Converter Error"               
+  [4] "Pitch Functionality Check"          "Stopped, Untwisting Cables"         "Grease Level Low, Hub"             
+  [7] "Local, Ad-Hoc / Repair Work"        "Dg: Tower Vent. Tor"                "Too Many Yaw Conv. Errors"         
+ [10] "Yaw Fail Waiting"                   "Ft1 Sonic Wind Sensor Error"        "Temperature In A1 Too High"        
+ [13] "No Lubrication, Blade B"            "Smoke In The A1 Box"                "Accumulator Capacity A Error"      
+ [16] "Frt Detected"                       "Accumulator Capacity B Error"       "Accumulator Capacity C Error"      
+ [19] "Inv.(Tow) Cool Water Pres. Warning" "Backup Battery Error"               "Sec.Wind Vane Blocked"             
+ [22] "Generator High Speed Waiting"       "Smoke In The A3 Box"                "Geninv: 1 Interlock"               
+ [25] "Grdinv: 1 Interlock"                "Primary Wind Vane Failure"          "Many Wind Vane Activations"        
+ [28] "Gear Oil Temperature Warning"       "Local, Scheduled Service Work"      "Inv.(Tow) Cool Water Pres. Low"    
+ [31] "Mcb Cleaning In Progresss"          "Mcb Cleaning Ended"                 "No Lubrication, Blade A"           
+ [34] "Accumulator A Check: Timeout"       "Primary Anemometer Failure"         "Many Anemometer Activations"       
+ [37] "Temperature In A9 Too High"         "Service Stop Hyd/Gear Pump/Fan"     "Extreme Hand Terminal Activity"    
+ [40] "Hyd. For Crane/Cover Activated"     "A9 Temperature Sensor Error"        "Gridvolt<Lower Limit1"             
+ [43] "Gridvolt<Lower Limit3"              "Gridvolt<Lower Limit4"              "Avilight, Lamp Failure"            
+ [46] "Brake Acc. Pressure Too Low"        "Valve Failures During Hubcheck"     "Gear Oil Pump/Blower Superheated"  
+ [49] "Pitch Pump Time Too Long, Waiting"  "Emergency Switch Activated"         "Offlinefilter Motor Superheatd"    
+ [52] "Pitchhydraulics Superheated"        "Gear Oil Pressure Too High/Low"     "Overspeed Hcu"                     
+ [55] "Smoke In The A4 Box"                "Smoke In The A18 Box"               "Twrfreq Outside Allowed Window"    
+ [58] "Gridvolt<Lower Limit2"              "Brake Pressure Too Low"             "Converter Tripped, Auto Start"     
+ [61] "Can:Io-2 Communication Error"       "Can:Io-7 Communication Error"       "Can:Gs-1 Communication Error"      
+ [64] "Low Torque, No Ice (Temp=Norm)"     "Smoke In The A2 Box"                "Hs-Rot Gearbearing Temp Warning"   
+ [67] "Inv. Cooling Water Temp Warning"    "Inv. Cooling  Water Temp High"      "Gear Oil Temperature High"         
+ [70] "Stopped Due To Power Up Delay"      "Pitch Pawl B Feedb. Operation"      "Pitch Pawl C Feedb. Operation"     
+ [73] "Converter Tripped, General"         "Geninv: 38 D1 Volt High"            "Grdinv: 6 Overtemperature"         
+ [76] "Grdinv: 38 D1 Volt High"            "Geninv: 302 Net Bridge Interl."     "Grd. Inv. Communication Error"     
+ [79] "Grdinv: 111 Can2 Warnings"          "Mc: +24V_Sensor Voltage Drop"       "Pitch Limit Exceeded At Service"   
+ [82] "Frequency On Mains Too Low"         "Frequency On Mains Too High"        "Grease Level Low, Gen Bearings"    
+ [85] "Slip Ring Error"                    "Inline (Aft) Pressure Sensor Error" "Inline Filter Warning"             
+ [88] "No Lubrication, Gen Bearings"       "Hs-Gen Gearbearing Temp Warning"    "Can:Hub Communication Error"       
+ [91] "Can:Io-4 Communication Error"       "Charge Main Breaker Cut Out"        "Grdinv: 31 D1U Curr. High"         
+ [94] "Smoke In The Power Unit"            "Smoke In The Reactor"               "Dc Fuse Blown"                     
+ [97] "Geninv: 183 Unident. Smps1"         "Geninv: 185 Unident. D2"            "Grdinv: 183 Unident. Smps1"        
+[100] "Grdinv: 185 Unident. D2"            "Grdinv: 186 Unident. Smps2"         "Grdinv: 93 Sfe Freq Out Of Lim"    
+[103] "Grdinv: 133 Sfe Mains Freq."        "Ups-Failure"                        "Osc. In Gen Speed, Design Lim"     
+[106] "Brake (Gen) Temperature Error"      "Rpm Sensor Error"                   "Max Waitforrpm Time Exceeded"      
+[109] "Pitch A Tracking During Stop"       "Pitch B Tracking During Stop"       "Pitch C Tracking During Stop"      
+[112] "Brake Pressure Too High"            "Grdinv: 94 Sfe Sync Mains Loss"     "Grdinv: 324 Ov Trip1 - Instant"    
+[115] "Mainbreaker Cut Out"                "No Lubrication, Main Bearing"       "Hub Pressureswitch Error"          
+[118] "Low Pitch Oil Pressure, Start"      "Pitch Pawl A Feedb. Operation"      "Accumulator C Check: Timeout"      
+[121] "Hub Module Powerdown Detected"      "Grease Level Low, Main Bearing"     "Hub Fan Supply Disconnected"       
+[124] "Brake Acc. Pressure Sensor Error"   "Smoke In The Inverter"              "Grd. Inv. Comm Error Autoreset"    
+[127] "Geninv: 46 D2 Ext Trip"             "Inverter Temperature High"          "Grdinv: 149 Dsp Run Inhibit"       
+[130] "Geninv: 241 Delta 1 Dib +15V"       "Gen Inv. Comm Error Autoreset"      "Valve Supplyvoltage Too Low"       
+[133] "I/O Module Sw Ver. Conflict"        "Ups Battery Low"                    "Ups Bypass Error"                  
+[136] "UPS Battery Low, Warning"           "Pitch Pawl B Feedb. Stop"           "Tower Conv. Cooling Water Low"     
+[139] "Can:Io-3 Communication Error"       "Hub: Blade B Valve Error"           "Pitch Pawl C Feedb. Stop"          
+[142] "Pitch Pawl Error - No Idling"       "Pitch Pawl A Feedb. Stop"           "Io Module 4 Powerdown Detected"    
+[145] "Yaw Motor(S) Superheated"           "Smoke In The Filter"                "Insufficient Wind For Cut-In"      
+[148] "Low Oil Pressure, Blade A"          "Hyd Oil Temperature Error"          "Low Oil Pressure, Blade C"         
+[151] "Low Oil Pressure, Blade B"          "Bad Pitch Calibration, Blade B"     "Low Lower Voltage Exceeded"        
+[154] "Warning, Brake Lining Worn"         "Hub: Valve Feedb. C Range Error"    "Hs Brake Lining Too Small"         
+[157] "Gen Bearing (Nde) Temp Warning"     "Geninv: 111 Can2 Warnings"          "Hyd Oil Level Error"               
+[160] "Gearoil Level Too Low"              "Accumulator B Check: Timeout"       "Main Bearing Temp Too High"        
+[163] "Main Bearing Temp Warning"          "Low Oil Pressure, Pump Station"     "Geninv: 139 U-Phase Sharing"       
+[166] "Mainreactor U Temp Sensor Error"    "Yaw Limit Sensor Activated"         "Too Many Slip Ring Errors"         
+[169] "Ft1 Sonic Wind Sensor Comm Error"   "Grdinv: 188 Unident. D3"            "Lmu Sensor Error"                  
+[172] "Gen Bearing (Nde) Temp Error"       "Stop For Powerdown"                 "Inline (Bef) Pressure Sensor Error"
+Show in New Window
+
+Show in New Window
+Warning: Each row in `x` is expected to match at most 1 row in `y`.
+Show in New Window
+[1] "imputing turbine: 1"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 2"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 3"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 4"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 5"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 6"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 7"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 8"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 9"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 10"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 11"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 12"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 13"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 14"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 15"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 16"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 17"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+Show in New Window
+
+Show in New Window
+
+Show in New Window
+
+[1] "fitting m = 5"
+[1] "fitting m = 6"
+[1] "fitting m = 7"
+[1] "fitting m = 8"
+[1] "fitting m = 9"
+[1] "fitting m = 10"
+[1] "fitting m = 11"
+[1] "fitting m = 12"
+[1] "fitting m = 13"
+[1] "fitting m = 14"
+[1] "fitting m = 15"
+[1] "fitting m = 16"
+[1] "fitting m = 17"
+[1] "fitting m = 18"
+[1] "fitting m = 19"
+[1] "fitting m = 20"
+[1] "fitting m = 21"
+[1] "fitting m = 22"
+[1] "fitting m = 23"
+[1] "fitting m = 24"
+[1] "fitting m = 25"
+[1] "fitting m = 26"
+[1] "fitting m = 27"
+[1] "fitting m = 28"
+[1] "fitting m = 29"
+[1] "fitting m = 30"
+[1] "fitting m = 31"
+[1] "fitting m = 32"
+> keeps
+> #plot
+> ggplot(data = keeps)+
++   geom_line(aes(x = m, y = OOB_error_rate))+
++   scale_x_continuous(breaks = c(1:8))+
++   labs(x = "m (mtry): # of x variables sampled",
++        y = "OOB Error rate")
+> keeps
+> # The smallest oob error is with 1 varaible... 
+> finalForest <- randomForest(BinaryFault ~ .,
++                              data = train.df[ !names(train.df) %in% excluded_columns],
++                              ntree = 1000,
++                              mtry = 4)
+> finalForest
+
+Call:
+ randomForest(formula = BinaryFault ~ ., data = train.df[!names(train.df) %in%      excluded_columns], ntree = 1000, mtry = 4) 
+               Type of random forest: classification
+                     Number of trees: 1000
+No. of variables tried at each split: 4
+
+        OOB estimate of  error rate: 0.17%
+Confusion matrix:
+      0 1 class.error
+0 23515 5 0.000212585
+1    34 0 1.000000000
+> pi_hat = predict(finalForest, test.df, type="prob")[,1]
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+> test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+> varImpPlot(finalForest, type = 1)
+Error in imp[, i] : subscript out of bounds
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+> test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+> varImpPlot(finalForest, type = 1)
+Error in imp[, i] : subscript out of bounds
+> finalForest
+
+Call:
+ randomForest(formula = BinaryFault ~ ., data = train.df[!names(train.df) %in%      excluded_columns], ntree = 1000, mtry = 4) 
+               Type of random forest: classification
+                     Number of trees: 1000
+No. of variables tried at each split: 4
+
+        OOB estimate of  error rate: 0.17%
+Confusion matrix:
+      0 1 class.error
+0 23515 5 0.000212585
+1    34 0 1.000000000
+> pi_hat = predict(finalForest, test.df, type="prob")[,1]
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+> test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+> varImpPlot(finalForest, type = 1)
+Error in imp[, i] : subscript out of bounds
+> # plotting the number of variables in the model against the oob
+> ggplot(data = keeps)+
++   geom_line(aes(x = m, y = OOB_error_rate))+
++   scale_x_continuous(breaks = c(1:32))+
++   labs(x = "m (mtry): # of x variables sampled",
++        y = "OOB Error rate")
+> varImpPlot(finalForest)
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest, type = 1)
+Error in imp[, i] : subscript out of bounds
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest)
+> # Creating data frame from Variable Importance plot to use in ggplot for a customization
+> imp = as.data.frame(imp)
+> imp$varnames = rownames(imp) # row names to column
+> rownames(imp) = NULL  
+> # new dataframe for the top 10 Important variables
+> varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+Error in order(imp$MeanDecreaseAccuracy, decreasing = TRUE) : 
+  argument 1 is not a vector
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+Error in ggplot(varImport, aes(x = reorder(varnames, MeanDecreaseAccuracy),  : 
+  object 'varImport' not found
+> # The smallest oob error is with 1 variable... 
+> finalForest <- randomForest(BinaryFault ~ .,
++                              data = train.df[ !names(train.df) %in% excluded_columns],
++                              ntree = 1000,
++                              mtry = 1,
++                             importance = TRUE)
+> # The smallest oob error is with 1 variable... 
+> finalForest <- randomForest(BinaryFault ~ .,
++                              data = train.df[ !names(train.df) %in% excluded_columns],
++                              ntree = 1000,
++                              mtry = 1,
++                             importance = TRUE)
+> finalForest
+
+Call:
+ randomForest(formula = BinaryFault ~ ., data = train.df[!names(train.df) %in%      excluded_columns], ntree = 1000, mtry = 1, importance = TRUE) 
+               Type of random forest: classification
+                     Number of trees: 1000
+No. of variables tried at each split: 1
+
+        OOB estimate of  error rate: 0.15%
+Confusion matrix:
+      0 1  class.error
+0 23518 2 8.503401e-05
+1    34 0 1.000000e+00
+> pi_hat = predict(finalForest, test.df, type="prob")[,1]
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+> test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest, type = 1)
+> # Creating data frame from Variable Importance plot to use in ggplot for a customization
+> imp = as.data.frame(imp)
+> imp$varnames = rownames(imp) # row names to column
+> rownames(imp) = NULL  
+> # new dataframe for the top 10 Important variables
+> varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> varImpPlot(finalForest)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> pi_hat = predict(finalForest, test.df, type="prob")[,1]
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
+> test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> ts_imputed = subset(lagged, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
+> #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
+> 
+> ts_imputed = subset(lagged, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
+> 
+> # list of turbines
+> turbine_list = unique(ts_imputed$location_id)
+> ts_imputed = arrange(ts_imputed, location_id, round_date)
+> # list of sensory columns names
+> column_list = colnames(ts_imputed)[c(9:40)]
+> 
+> # iterate through turbines then through each imputing column
+> for (i in 1:length(turbine_list)){
++  print(paste0("imputing turbine: ", i))
++  #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
++  x = subset(lagged, location_id == turbine_list[i])
++  for (j in column_list){
++   print(paste0("imputing column: ", j))
++   # use this time series imputing algorithm to fill in missing values
++   imp = na_kalman(x[,j])
++   # put data back into bhedata and we have a new dataframe that is all imputed!!!
++   ts_imputed[ts_imputed$location_id == turbine_list[i],j] <- imp
++ 
++  }
++ 
++ }
+[1] "imputing turbine: 1"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 2"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 3"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 4"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 5"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 6"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 7"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 8"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 9"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 10"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 11"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 12"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 13"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 14"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 15"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 16"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+[1] "imputing turbine: 17"
+[1] "imputing column: lag_mean_bearing"
+[1] "imputing column: lag_max_bearing"
+[1] "imputing column: lag_min_bearing"
+[1] "imputing column: lag_sd_bearing"
+[1] "imputing column: lag_mean_hydraulic"
+[1] "imputing column: lag_max_hydraulic"
+[1] "imputing column: lag_min_hydraulic"
+[1] "imputing column: lag_sd_hydraulic"
+[1] "imputing column: lag_mean_rpm"
+[1] "imputing column: lag_max_rpm"
+[1] "imputing column: lag_min_rpm"
+[1] "imputing column: lag_sd_rpm"
+[1] "imputing column: lag_mean_oil"
+[1] "imputing column: lag_max_oil"
+[1] "imputing column: lag_min_oil"
+[1] "imputing column: lag_sd_oil"
+[1] "imputing column: lag_mean_ims"
+[1] "imputing column: lag_max_ims"
+[1] "imputing column: lag_min_ims"
+[1] "imputing column: lag_sd_ims"
+[1] "imputing column: lag_mean_ims2"
+[1] "imputing column: lag_max_ims2"
+[1] "imputing column: lag_min_ims2"
+[1] "imputing column: lag_sd_ims2"
+[1] "imputing column: lag_mean_active"
+[1] "imputing column: lag_max_active"
+[1] "imputing column: lag_min_active"
+[1] "imputing column: lag_sd_active"
+[1] "imputing column: lag_mean_ambient"
+[1] "imputing column: lag_max_ambient"
+[1] "imputing column: lag_min_ambient"
+[1] "imputing column: lag_sd_ambient"
+> 
+> # Output Dataset imputed. This is for the random forest
+> write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
+> 
+> View(ts_imputed)
+> View(finalForest)
+
+> View(forest_data)
+> # plotting the number of variables in the model against the oob
+> ggplot(data = keeps)+
++   geom_line(aes(x = m, y = OOB_error_rate))+
++   scale_x_continuous(breaks = c(1:32))+
++   labs(x = "m (mtry): # of x variables sampled",
++        y = "OOB Error rate")
+> # plotting the number of variables in the model against the oob. Beyond 10, the oob is the same
+> ggplot(data = keeps)+
++   geom_line(aes(x = m, y = OOB_error_rate))+
++   scale_x_continuous(breaks = c(1:10))+
++   labs(x = "m (mtry): # of x variables sampled",
++        y = "OOB Error rate")
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c(0,1))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest, type = 1)
+> # Creating data frame from Variable Importance plot to use in ggplot for a customization
+> imp = as.data.frame(imp)
+> imp$varnames = rownames(imp) # row names to column
+> rownames(imp) = NULL  
+> # new data frame for the top 10 Important variables
+> varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> # reading in the lagged and imputed data set
+> forest_data <- read.csv("Data/final_data-v9-lagged-imputed.csv", stringsAsFactors = TRUE)
+> # reading in the lagged and imputed data set
+> forest_data <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> # plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
+> ggplot(data = keeps)+
++   geom_line(aes(x = m, y = OOB_error_rate))+
++   scale_x_continuous(breaks = c(1:10))+
++   labs(x = "m (mtry): # of x variables sampled",
++        y = "OOB Error rate")
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest, type = 1)
+> # Creating data frame from Variable Importance plot to use in ggplot for a customization
+> imp = as.data.frame(imp)
+> imp$varnames = rownames(imp) # row names to column
+> rownames(imp) = NULL  
+> # new data frame for the top 10 Important variables
+> varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> p 
+Error: object 'p' not found
+> p 
+Error: object 'p' not found
+> ### Variable importance plot
+> #setting a variable to the variable importance plot
+> imp = varImpPlot(finalForest, type = 1)
+> # Creating data frame from Variable Importance plot to use in ggplot for a customization
+> imp = as.data.frame(imp)
+> imp$varnames = rownames(imp) # row names to column
+> rownames(imp) = NULL  
+> # new data frame for the top 10 Important variables
+> varImport = imp[order(imp$MeanDecreaseAccuracy, decreasing = TRUE),] %>% slice(1:10)
+> ggplot(varImport, aes(x=reorder(varnames, MeanDecreaseAccuracy), weight=MeanDecreaseAccuracy)) +
++   geom_bar(fill = "#0077C8") +
++   labs(title="Variable importance",
++        subtitle="Top 10 important variables")+
++   ylab("MeanDecreaseAccuracy") +
++   xlab("Variables")+
++   theme(
++     axis.title.y = element_text(vjust = +3),
++     axis.title.x = element_text(vjust = -1.75),
++     panel.grid.major = element_blank(),
++     panel.grid.minor = element_blank(),
++     panel.background = element_blank())+
++   coord_flip()
+> model1 = glm(BinaryFault ~ lag_sd_ims, data =forest_data, family = binomial(link ="logit"))
+> model2 = glm(BinaryFault ~ lag_sd_ims, lag_sd_active, data =forest_data, family = binomial(link ="logit"))
+Warning: non-integer #successes in a binomial glm!
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c("0","1"))
+Setting direction: controls > cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> pi_hat
+    3    13    16    27    32    36    48    50    54    58    60    70    74    85   100   114   116   121   127   132   136   137   142   143 
+1.000 1.000 0.999 1.000 0.997 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 0.998 1.000 1.000 1.000 1.000 0.999 1.000 1.000 0.996 1.000 0.998 
+  144   149   158   165   187   188   190   192   203   215   216   230   233   235   236   237   260   261   294   298   301   303   304   306 
+1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.998 1.000 1.000 1.000 
+  311   316   321   327   329   332   334   335   340   342   343   344   345   350   355   364   365   366   372   376   390   392   394   397 
+1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 0.998 1.000 1.000 1.000 0.999 1.000 0.994 0.998 0.999 0.998 1.000 1.000 1.000 1.000 1.000 1.000 
+  398   415   416   417   418   421   422   426   433   434   435   443   445   446   453   454   456   459   473   475   482   486   491   498 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.997 0.987 1.000 1.000 1.000 1.000 0.999 0.996 
+  514   516   525   533   540   550   553   554   559   560   563   569   571   578   580   590   592   602   608   614   621   625   630   644 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.999 0.997 1.000 1.000 1.000 1.000 0.999 1.000 
+  650   652   660   662   667   672   691   693   696   699   716   727   737   751   753   754   757   759   762   767   768   770   772   773 
+1.000 1.000 1.000 1.000 1.000 0.995 1.000 1.000 1.000 1.000 0.999 1.000 1.000 0.999 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+  776   781   786   787   788   789   791   797   798   802   803   811   819   823   827   830   832   846   847   850   852   859   864   867 
+0.998 1.000 1.000 1.000 1.000 0.998 0.999 1.000 1.000 1.000 1.000 0.991 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 
+  868   872   873   881   884   887   890   908   911   915   916   921   923   926   927   936   949   955   960   964   969   974   976   986 
+1.000 1.000 0.999 0.997 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 
+  989   991   994   998  1005  1009  1010  1012  1014  1032  1036  1041  1044  1046  1053  1056  1062  1071  1075  1090  1094  1095  1105  1113 
+1.000 1.000 1.000 1.000 1.000 0.993 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+ 1118  1124  1125  1130  1132  1135  1137  1138  1156  1165  1170  1174  1175  1178  1180  1191  1207  1210  1211  1212  1215  1218  1219  1225 
+1.000 1.000 1.000 0.993 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.999 0.998 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+ 1233  1241  1250  1270  1271  1272  1273  1279  1282  1291  1293  1294  1304  1305  1311  1312  1316  1321  1326  1334  1337  1338  1342  1349 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 0.999 0.994 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 1362  1364  1374  1379  1392  1393  1407  1417  1424  1433  1438  1441  1444  1446  1449  1456  1463  1466  1467  1474  1479  1484  1501  1503 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 0.999 0.999 1.000 1.000 1.000 1.000 1.000 1.000 
+ 1505  1506  1511  1512  1513  1516  1520  1527  1536  1537  1541  1543  1548  1554  1562  1563  1564  1569  1575  1576  1585  1588  1591  1595 
+0.998 1.000 0.999 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 0.995 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 0.994 1.000 0.997 
+ 1596  1604  1605  1614  1615  1619  1622  1623  1624  1635  1638  1642  1645  1646  1651  1673  1684  1685  1686  1687  1692  1696  1704  1712 
+0.998 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.990 0.987 1.000 1.000 1.000 1.000 0.999 
+ 1714  1717  1729  1733  1750  1754  1768  1771  1773  1775  1787  1794  1807  1808  1810  1817  1820  1841  1849  1850  1851  1854  1856  1860 
+1.000 1.000 1.000 1.000 1.000 1.000 0.999 0.992 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 1.000 1.000 
+ 1862  1866  1878  1881  1885  1886  1894  1902  1910  1921  1926  1930  1932  1940  1959  1961  1962  1966  1975  1978  1987  1991  1996  1997 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.996 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+ 2000  2005  2008  2020  2021  2022  2031  2062  2072  2073  2075  2083  2087  2093  2095  2096  2098  2103  2111  2116  2121  2122  2131  2132 
+1.000 1.000 1.000 1.000 0.997 1.000 0.998 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 0.999 
+ 2137  2141  2142  2143  2144  2146  2149  2159  2161  2165  2169  2170  2171  2172  2181  2188  2192  2209  2233  2236  2239  2242  2252  2264 
+1.000 0.991 0.997 0.997 1.000 1.000 1.000 0.991 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 
+ 2266  2279  2298  2304  2305  2319  2322  2325  2328  2335  2336  2340  2354  2359  2365  2367  2370  2373  2378  2393  2397  2418  2428  2433 
+1.000 1.000 1.000 0.998 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+ 2435  2443  2445  2447  2453  2455  2457  2459  2460  2461  2471  2478  2483  2491  2502  2504  2511  2512  2521  2531  2543  2547  2551  2553 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 2555  2568  2580  2585  2589  2591  2604  2613  2616  2637  2639  2647  2659  2666  2668  2670  2671  2674  2677  2682  2684  2685  2686  2703 
+0.999 0.999 1.000 0.999 1.000 0.994 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 0.999 0.999 1.000 1.000 0.998 
+ 2708  2716  2725  2738  2740  2743  2745  2748  2753  2761  2765  2768  2773  2777  2779  2784  2785  2786  2791  2807  2814  2818  2820  2823 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 0.998 1.000 0.984 1.000 1.000 1.000 1.000 0.999 
+ 2833  2846  2848  2850  2871  2872  2892  2894  2906  2907  2911  2916  2919  2921  2923  2926  2928  2933  2934  2963  2971  2979  2986  2989 
+1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.999 0.999 1.000 0.997 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 2999  3008  3009  3015  3016  3017  3018  3025  3028  3032  3033  3036  3051  3066  3069  3073  3074  3079  3089  3093  3097  3103  3107  3108 
+1.000 1.000 1.000 1.000 0.999 0.992 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 0.999 1.000 1.000 1.000 1.000 1.000 1.000 
+ 3122  3126  3139  3141  3146  3151  3155  3159  3162  3168  3169  3172  3173  3179  3181  3182  3194  3203  3209  3213  3220  3222  3225  3232 
+0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.996 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 0.999 1.000 1.000 
+ 3235  3243  3248  3250  3251  3252  3257  3259  3261  3265  3271  3277  3281  3282  3286  3290  3294  3302  3303  3307  3312  3315  3329  3336 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 3343  3349  3365  3373  3376  3388  3397  3404  3408  3409  3419  3420  3436  3442  3443  3446  3447  3456  3463  3465  3468  3471  3498  3502 
+1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 1.000 0.999 0.999 1.000 1.000 1.000 1.000 0.999 0.986 1.000 1.000 0.999 1.000 0.998 1.000 1.000 
+ 3507  3508  3509  3513  3521  3523  3525  3528  3529  3536  3538  3548  3549  3552  3561  3562  3569  3573  3583  3584  3585  3590  3594  3598 
+1.000 0.999 0.998 0.985 1.000 1.000 0.997 1.000 0.991 1.000 1.000 0.999 0.996 1.000 0.997 1.000 0.961 1.000 0.998 0.999 1.000 0.996 0.999 1.000 
+ 3601  3602  3606  3607  3612  3614  3622  3626  3635  3644  3656  3665  3668  3673  3674  3682  3686  3689  3701  3707  3717  3720  3723  3726 
+1.000 0.997 1.000 1.000 1.000 0.996 0.997 1.000 1.000 1.000 1.000 1.000 0.999 1.000 0.997 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.997 
+ 3732  3737  3754  3766  3782  3790  3810  3816  3823  3824  3828  3831  3834  3843  3847  3854  3857  3869  3870  3871  3877  3878  3893  3894 
+1.000 1.000 0.999 0.995 0.999 1.000 0.999 0.998 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 3901  3902  3907  3908  3915  3919  3920  3922  3928  3936  3937  3940  3959  3961  3962  3983  3985  3989  3993  4004  4005  4007  4018  4026 
+1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.998 1.000 1.000 1.000 1.000 0.998 0.996 1.000 1.000 1.000 1.000 0.999 1.000 0.940 1.000 1.000 
+ 4028  4030  4032  4041  4042  4047  4055  4057  4066  4070  4072  4074  4077  4078  4092  4102  4103  4104  4110  4111  4126  4129  4134  4145 
+1.000 0.993 1.000 1.000 0.995 1.000 1.000 1.000 0.985 0.998 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.999 
+ 4146  4153  4161  4162  4166  4168  4169  4177  4185  4190  4195  4199  4206  4207  4211  4213  4221  4232  4238  4240  4242  4245  4249  4254 
+0.998 0.998 0.995 1.000 0.999 0.996 0.997 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.993 0.999 1.000 1.000 1.000 1.000 1.000 
+ 4260  4265  4267  4269  4273  4274  4276  4293  4298  4299  4302  4304  4311  4315  4323  4328  4338  4340  4342  4346  4348  4356  4361  4367 
+1.000 0.995 1.000 0.999 1.000 1.000 0.999 1.000 0.996 0.996 1.000 0.999 0.997 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 4370  4378  4381  4384  4389  4398  4404  4410  4411  4412  4418  4422  4431  4433  4439  4441  4442  4448  4449  4450  4452  4456  4462  4475 
+1.000 1.000 1.000 1.000 0.999 0.999 1.000 1.000 1.000 1.000 0.999 1.000 1.000 0.996 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 1.000 
+ 4483  4485  4491  4492  4494  4509  4513  4514  4515  4517  4533  4536  4539  4546  4549  4551  4560  4573  4580  4583  4586  4587  4588  4592 
+1.000 0.998 0.998 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.998 0.999 1.000 1.000 0.999 0.995 1.000 1.000 1.000 0.999 
+ 4596  4614  4615  4618  4619  4625  4627  4630  4635  4640  4644  4647  4649  4652  4660  4665  4667  4669  4685  4688  4690  4696  4712  4714 
+1.000 1.000 1.000 1.000 0.999 1.000 0.999 1.000 1.000 1.000 1.000 0.993 1.000 1.000 1.000 1.000 1.000 1.000 0.972 0.932 0.953 0.995 1.000 1.000 
+ 4722  4723  4728  4733  4734  4735  4736  4748  4750  4757  4762  4768  4769  4773  4778  4781  4787  4794  4799  4805  4819  4820  4827  4829 
+0.999 0.986 0.999 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 0.999 1.000 1.000 1.000 0.997 1.000 0.995 0.999 1.000 0.999 
+ 4831  4832  4836  4845  4846  4850  4860  4867  4870  4872  4873  4876  4889  4895  4899  4900  4903  4905  4906  4911  4917  4919  4930  4943 
+0.999 0.999 1.000 0.998 1.000 0.999 1.000 1.000 1.000 1.000 1.000 1.000 0.999 1.000 0.998 1.000 1.000 1.000 0.997 0.984 0.927 0.973 1.000 1.000 
+ 4947  4956  4960  4972  4974  4979  4982  4995  4996  5003  5006  5008  5026  5030  5033  5034  5041  5045  5047  5060  5061  5071  5072  5073 
+1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.999 1.000 1.000 0.989 0.996 1.000 1.000 1.000 1.000 1.000 0.999 1.000 1.000 1.000 0.998 0.999 0.999 
+ 5083  5086  5089  5109  5114  5117  5119  5126  5127  5128  5130  5132  5135  5137  5140  5147  5157  5164  5171  5173  5174  5191  5203  5205 
+1.000 0.997 1.000 0.986 0.976 0.999 0.998 0.998 1.000 1.000 1.000 0.999 1.000 0.999 1.000 0.999 0.900 0.993 0.998 0.996 1.000 1.000 0.999 1.000 
+ 5208  5211  5220  5223  5228  5229  5232  5233  5235  5237  5241  5243  5251  5254  5259  5260 
+1.000 1.000 0.995 0.994 1.000 1.000 0.999 1.000 1.000 1.000 0.999 1.000 1.000 0.998 1.000 1.000 
+ [ reached getOption("max.print") -- omitted 4889 entries ]
+> pi_hat = predict(finalForest, test.df, type="prob")[,"1"]
+> rocCurve = roc(response = test.df$BinaryFault,
++                predictor = pi_hat,
++                levels=c("0","1"))
+Setting direction: controls < cases
+> plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+> 

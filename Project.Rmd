@@ -734,12 +734,13 @@ test.df <- forest_data[-train.idx, ]
 mtry <- c(1:32) # The maximum number of independent variables are 32
 keeps = data.frame(m = rep(NA, length(mtry)),
                    OOB_error_rate = rep(NA, length(mtry)))
+# getting the names of the columns we do not need in the model
 excluded_columns = names(train.df[1:7])
 for (idx in 1:length(mtry)){
   print(paste0("fitting m = ", mtry[idx]))
   
   tempForest  = randomForest(BinaryFault ~ .,
-                             data = train.df[ !names(train.df) %in% excluded_columns],
+                             data = train.df[ !names(train.df) %in% excluded_columns], # excluding the names of the columns we are not using.
                              ntree = 1000,
                              mtry = mtry[idx])
   keeps[idx, "m"] = mtry[idx]
@@ -774,11 +775,10 @@ plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
 # Sensitivity = .385
 # AUC = .690
 # This means the model will predict a critical fault code 38.5% of the time correctly when there is actually a critical issue and
-# that the model will predict non critical occurrences 97.5% of the time correctly when there is actually no critical issues.
+# that the model will predict non critical occurrences 97.5% of the time correctly when there is actually non critical occurrences.
 
 pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
 test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
-
 
 
 ### Variable importance plot

@@ -157,6 +157,7 @@ fault$Date <- ymd(fault$Date)
 
 #------------------------------Remove duplicates of fault code pinging for consecutive intervals---------------####
 # order fault data by turbine, date, and fault code
+# this code was made by ben and adapted to our dataset.
 fault <- fault[order(fault$location_id, fault$Date, fault$FaultCode),]
 # create new time difference variable to help remove duplicates
 fault$Time_Diff = NA
@@ -621,6 +622,53 @@ for (i in 1:length(turbine_list)){
 # Output Dataset imputed. This is for the random forest
 write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
 
+```
+
+```{r fuzzy join work order, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
+# fuzzy join workorder and fully_joined
+
+unique(workorder$location_id)
+workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
+                        max = max(wo_start_date),)
+# because we can see that we only have work orders from 2020-08-01 to 2022-08-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
+joined_subset <- fully_joined[fully_joined$Date < "2022-09-01",]
+
+
+# Defining the two vectors we will be joining from a match. 
+# from the work order info column we will find the most closely related fault code description
+to_vec <- unique(joined_subset$Description)
+from_vec <- unique(workorder$Order_Info)
+# removing the first 6 characters in hopes of better fuzzy matching
+from_vec2 <- substr(from_vec, 6,nchar(from_vec))
+
+get_best_matches <- function(from_vec2,to_vec) {
+  
+  get_best_matches <- function(from_string, to_vec){
+    return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
+  }
+    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
+  }
+difflib_matches <- get_best_matches(from_vec2, to_vec)
+
+get_score <- function(string1, string2) {
+  return(SequenceMatcher$new(from_vec2[1],difflib_matches[1])$ratio())
+}
+
+get_score <- Vectorize(get_score)
+
+difflib_scores <- get_score(from_vec2, difflib_matches)
+
+fuzzy_list <- data.frame(from_vec, difflib_matches)
+names(fuzzy_list) <- c("Order_Info", "Description")
+
+# joining the fuzzy match with work orders, so then workorder cam be joined to the sensory data by Description, location_id, and approximate time. 
+fuzzy_workorder <- full_join(workorder, fuzzy_list, by=c('Order_Info'))
+
+
+# saving the work order with Discription from fault code. Idealy this could be joined for the full data set.
+write.csv(fuzzy_workorder,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.names=FALSE)
 ```
 
 ## Matrix

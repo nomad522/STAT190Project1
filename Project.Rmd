@@ -706,12 +706,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-data = numeric
+data = pd.read_csv('Data/final_data-v10-joined-lagged.csv')
 db2 = data.drop(columns =['BinaryFault']) # these are Categorical 
 
 # Seaborn scatterplot matrix
 sns.pairplot(db2)
-plt.show() #use to show in r mark down. Don't use when knitting to html
+plt.show() #use to show in r mark down. Don't use when knitting to html (comment out)
 
 
 ```
@@ -777,7 +777,7 @@ train.df <- forest_data[train.idx, ]
 test.df <- forest_data[-train.idx, ]
 
 
-mtry <- c(1:32) # The maximum number of independent variables are 32
+mtry <- c(1:10) # The maximum number of independent variables are 32. sqrt(32) ~ 5.6, but we tried 10
 keeps = data.frame(m = rep(NA, length(mtry)),
                    OOB_error_rate = rep(NA, length(mtry)))
 # getting the names of the columns we do not need in the model
@@ -794,7 +794,7 @@ for (idx in 1:length(mtry)){
 }
 
 keeps
-# plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
+# plotting the number of variables in the model against the oob. The best oob seems to be 3
 ggplot(data = keeps)+
   geom_line(aes(x = m, y = OOB_error_rate))+
   scale_x_continuous(breaks = c(1:10))+
@@ -817,11 +817,11 @@ rocCurve = roc(response = test.df$BinaryFault,
                levels=c("0","1"))
 plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
 
-# Specificity = .973
-# Sensitivity = .385
-# AUC = .690
-# This means the model will predict a critical fault code 38.5% of the time correctly when there is actually a critical issue and
-# that the model will predict non critical occurrences 97.5% of the time correctly when there is actually non critical occurrences.
+# Specificity = .940
+# Sensitivity = .538
+# AUC = .743
+# This means the model will predict a critical fault code 53.8% of the time correctly when there is actually a critical issue and
+# that the model will predict non critical occurrences 94.0% of the time correctly when there is actually non critical occurrences.
 
 pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
 test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))

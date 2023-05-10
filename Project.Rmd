@@ -53,9 +53,8 @@ All r code and rmarkdown will be in the root directory with and all sensory data
 
 + Data/Wind Turbine Data Batch 2/Windspeed
 
-#Reading in the data and cleaning
-The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
-then aggregated by the average in 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
+This project can be ran top to bottom. 
+
 
 ##Libraries needed to run this project
 
@@ -97,8 +96,13 @@ DIFFLIB <- reticulate::import("difflib")
 POLYFUZZ <- reticulate::import("polyfuzz")
 
 ```
-# Data Processing
 
+
+## Data Processing
+
+#Reading in the data and cleaning
+The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
+then aggregated by the average, min, max, standard deviation of the 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time.
 ```{r data_processing, eval=FALSE}
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
@@ -441,7 +445,8 @@ fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date'))
   full_join(., ims2, c('location_id', 'round_date')) %>%
   full_join(., active, c('location_id', 'round_date'))%>%
   full_join(., ambient, by=c('location_id', 'round_date'))
-
+  
+# Because fault codes are condensed into the first occurrences, fault code events, it is left joined.
 fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date'))
 
 
@@ -452,6 +457,11 @@ fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 
 ```
 
+# Target Variable
+Creation of variables for prediction and graphing
+FaultCodeType
+BinaryFaul
+ 
 ```{r fault code Descriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
@@ -461,7 +471,7 @@ unique(fully_joined$Description)
 # else it is unknown, no fault codes, manual stopped or stopped for some other reason
 
 # Creating categorical variable FaultCodeType.
-#grep()
+#grep() could/should had been used here.
 fully_joined = fully_joined %>%mutate(FaultCodeType =
   case_when(
   Description == "Gear Oil Temperature High"~"Critical",
@@ -536,20 +546,22 @@ fully_joined = fully_joined %>% mutate(BinaryFault = case_when(FaultCodeType == 
                                                .default = 0))
 
 # Output joined dataset with FaultCodeType and BinaryFault.
+# multiple output and read in are made to fit different criteria through the project.
 write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.names=FALSE)
 
+```
+
+## Lag varaibles
+Lag variables, by 6 hours, are created for predictive modeling.
+
+```{r, lag}
 
 fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TRUE)
 # after reading in, must convert time date again.
 fully_joined$round_date <- ymd_hms(fully_joined$round_date)
 fully_joined$Date <- ymd(fully_joined$Date)
 
-```
-
-### Lag varaibles
-```{r, lag}
-
-# Creating lag variables by 6 hours
+# Creating lag variables by 6 hours, using the dyplr lag function.
 lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
                                           lag_max_bearing = lag(max_bearing,n=6),
                                           lag_min_bearing = lag(min_bearing,n=6),
@@ -587,19 +599,18 @@ lagged = lagged %>% drop_na(lag_min_hydraulic)
 # Output joined and lagged dataset with FaultCodeType and BinaryFault. This should be for graphs.
 write.csv(lagged,paste(path_out,'final_data-v10-joined-lagged.csv',sep = ''),row.names=FALSE)
 
-
-lagged <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
-# after reading in, must convert time date again.
-lagged$round_date <- ymd_hms(lagged$round_date)
-lagged$Date <- ymd(lagged$Date)
-
-
 ```
 
 
 ```{r impute, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
+lagged <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
+# after reading in, must convert time date again.
+lagged$round_date <- ymd_hms(lagged$round_date)
+lagged$Date <- ymd(lagged$Date)
+
+# in the imputed data set we are only using the lagged sensory data.
 ts_imputed = subset(lagged, select=-c(max_bearing,min_bearing,mean_bearing,sd_bearing,mean_hydraulic,max_hydraulic,min_hydraulic,sd_hydraulic,mean_rpm,max_rpm,min_rpm,sd_rpm,mean_oil,max_oil,min_oil,sd_oil,mean_ims,max_ims,min_ims,sd_ims,mean_ims2,max_ims2,min_ims2,sd_ims2,mean_ims,max_active,min_active,sd_active,mean_active,mean_ambient,max_ambient,min_ambient,sd_ambient))
 
 # list of turbines
@@ -624,7 +635,7 @@ for (i in 1:length(turbine_list)){
 
 }
 
-# Output Dataset imputed. This is for the random forest
+# Output of the lagged imputed dataset. 
 write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
 
 ```
@@ -677,6 +688,7 @@ write.csv(fuzzy_workorder,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.nam
 ```
 
 ## Matrix
+A variable maxtrix was created in hopes finding correlations.
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 
@@ -699,14 +711,16 @@ scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
 # ggplotly(scatter_matrix)
 
 #Notes:
+# orginally made only for the unlagged and unimputed data sets.
 # We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .94.
 # We can see that Active Power is also directly related to the Generator RPM at .94. Which seems right.
-# We can see that Wind Speed is oddly inversely related to Hydraulic Pressure, Generator RPM, and active power. Probably due to a lack of wind data
-
 
 ```
 
 ```{python, scatterplotmatrix}
+# This was orginally created for data set prior to batch 2 and probably wont run now.
+# This is python code.
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -722,7 +736,9 @@ plt.show() #use to show in r mark down. Don't use when knitting to html (comment
 ```
 
 
-## Multivariate
+## Multivariate exploration
+Graphs of variable interactions.
+
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
 #data set for unimputed dataset
 graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
@@ -730,8 +746,6 @@ graphs$round_date <- ymd_hms(graphs$round_date)
 #data set for imputed dataset
 graphs_imputed <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
 graphs_imputed$round_date <- ymd_hms(graphs_imputed$round_date)
-
-
 
 # graphing the mean active power and mean rpm of one hour intervals, colored by whether they are critical, warnings or other fault codes
 g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
@@ -765,17 +779,17 @@ g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCode
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
 
-
-
-
+# new variable created for graph to be use as color
 graphs_imputed$order <- ifelse(graphs_imputed$BinaryFault=="0", "Critical Fault Absent", "Critical Fault Present")
+#Graphing lagged standard deviation of rpm and hydrolic pressure
 g3 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_sd_rpm, y = lag_sd_hydraulic, color = factor(BinaryFault))) +
    geom_point(size = 3,alpha = 0.5) +
    scale_colour_manual(values = c("black", "red")) +
    labs(x="Standard Deviation of Generator RPM", y= "Standard Deviation of Hydraulic Pressure",
        title="Standard Deviation of Generator RPM and Hydraulic Pressure by Critical Fault Occurrance") +
    facet_wrap(~order, ncol=2) + geom_smooth(method=lm,se=FALSE) + theme_bw(base_size = 16)
-
+   
+#Graphing lagged minimum active power and hydrolic pressure
 g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_min_hydraulic, color = factor(BinaryFault))) +
   geom_point(size = 3,alpha = 0.7) +
   scale_colour_manual(values = c("black", "red"),name = "Critical Fault",labels=c("Absent","Present")) +
@@ -783,7 +797,8 @@ g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_m
        title="Minimum of Active Power and Hydraulic Pressure by Critical Fault Occurrance") +
   theme_bw(base_size = 20)
 
-
+####### Doesn't run graph-------
+# Goal was to graph IMS temperature (and other variables) in a time sereies with fault code events, but geom_vline wasn't working.
 # Turbine 28 has the most critical fault codes
 graphs_imputed %>%
         group_by(location_id) %>%
@@ -800,7 +815,7 @@ g5 <- ggplot(NULL) +
   geom_vline(data = fault_date,aes(xintercept = round_date, linetype=4))+
   scale_x_datetime(limits = lims, expand = c(0, 0))
 
-
+# Graphing the graphs
 grid.arrange(g1,g2,g3,g4)
 ```
 

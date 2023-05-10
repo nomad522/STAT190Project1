@@ -768,6 +768,7 @@ forest_data$location_id <- as.factor(forest_data$location_id)
 forest_data$round_date <- ymd_hms(forest_data$round_date)
 forest_data$Date <- ymd(forest_data$Date)
 
+#### Random Forest Model 1 without location_id (Turbine) ----
 RNGkind(sample.kind = "default")
 set.seed(231231)
 train.idx <- sample(x = 1 : nrow(forest_data), size = .8*nrow(forest_data))
@@ -776,8 +777,7 @@ train.df <- forest_data[train.idx, ]
 #make testing data
 test.df <- forest_data[-train.idx, ]
 
-
-mtry <- c(1:10) # The maximum number of independent variables are 32. sqrt(32) ~ 5.6, but we tried 10
+mtry <- c(1:10) # The maximum number of independent variables are 32
 keeps = data.frame(m = rep(NA, length(mtry)),
                    OOB_error_rate = rep(NA, length(mtry)))
 # getting the names of the columns we do not need in the model
@@ -794,20 +794,26 @@ for (idx in 1:length(mtry)){
 }
 
 keeps
-# plotting the number of variables in the model against the oob. The best oob seems to be 3
+# plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
 ggplot(data = keeps)+
   geom_line(aes(x = m, y = OOB_error_rate))+
   scale_x_continuous(breaks = c(1:10))+
   labs(x = "m (mtry): # of x variables sampled",
-       y = "OOB Error rate")
+       y = "OOB Error rate") +
+  ggtitle("mtry Value Vs OOB Error Rate")
 
 # The smallest oob error is with 1 variable... 
 finalForest <- randomForest(BinaryFault ~ .,
-                             data = train.df[ !names(train.df) %in% excluded_columns],
-                             ntree = 1000,
-                             mtry = 3,
-                             importance = TRUE)
+                            data = train.df[ !names(train.df) %in% excluded_columns],
+                            ntree = 1000,
+                            mtry = 3,
+                            importance = TRUE)
 finalForest
+
+# Create Variable Importance plot of most important explanatory variables
+# in the random forest model
+varImpPlot(finalForest, type = 1, main="Variable Importance Plot: Random Forest Model 1")
+# The top 5 are lag_sd_ims, lag_max_ims, lag_sd_oil, lag_min_ims, and lag_min_oil
 
 pi_hat = predict(finalForest, test.df, type="prob")[,"1"]
 #pit_hat is now a vector of predicted probabilities (of 1, critical fault codes)
@@ -815,19 +821,87 @@ pi_hat = predict(finalForest, test.df, type="prob")[,"1"]
 rocCurve = roc(response = test.df$BinaryFault,
                predictor = pi_hat,
                levels=c("0","1"))
-plot(rocCurve, print.thres = TRUE, print.auc=TRUE)
+plot(rocCurve, print.thres = TRUE, print.auc=TRUE,
+     main = "ROC Curve for Random Forest Model 1")
 
-# Specificity = .940
-# Sensitivity = .538
-# AUC = .743
-# This means the model will predict a critical fault code 53.8% of the time correctly when there is actually a critical issue and
-# that the model will predict non critical occurrences 94.0% of the time correctly when there is actually non critical occurrences.
+# Specificity = .795
+# Sensitivity = .615
+# AUC = .732
+# This means the model will predict a critical fault code 61.5% of the time correctly when there is actually a critical issue and
+# that the model will predict non critical occurrences 79.5% of the time correctly when there is actually non critical occurrences.
 
 pi_star = coords(rocCurve, "best", ret = "threshold")$threshold[1]
 test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star,1,0))
 
 
-### Variable importance plot
+
+#### Random Forest Model 2 including location_id (Turbine) ----
+RNGkind(sample.kind = "default")
+set.seed(231231)
+train.idx <- sample(x = 1 : nrow(forest_data), size = .8*nrow(forest_data))
+# make training data
+train.df <- forest_data[train.idx, ]
+#make testing data
+test.df <- forest_data[-train.idx, ]
+
+mtry <- c(1:10) # The maximum number of independent variables are 32
+keeps = data.frame(m = rep(NA, length(mtry)),
+                   OOB_error_rate = rep(NA, length(mtry)))
+# getting the names of the columns we do not need in the model
+excluded_columns = names(train.df[2:7])
+for (idx in 1:length(mtry)){
+  print(paste0("fitting m = ", mtry[idx]))
+  
+  tempForest  = randomForest(BinaryFault ~ .,
+                             data = train.df[ !names(train.df) %in% excluded_columns], # excluding the names of the columns we are not using.
+                             ntree = 1000,
+                             mtry = mtry[idx])
+  keeps[idx, "m"] = mtry[idx]
+  keeps[idx, "OOB_error_rate"] = mean(predict(tempForest) != train.df$BinaryFault)
+}
+
+keeps
+# plotting the number of variables in the model against the oob. Beyond 8, the oob is the same
+ggplot(data = keeps[1:10, ])+
+  geom_line(aes(x = m, y = OOB_error_rate))+
+  scale_x_continuous(breaks = c(1:10))+
+  labs(x = "m (mtry): # of x variables sampled",
+       y = "OOB Error rate") +
+  ggtitle("mtry Value Vs OOB Error Rate")
+
+# The smallest oob error is with 1 variable... 
+finalForest2 <- randomForest(BinaryFault ~ .,
+                            data = train.df[ !names(train.df) %in% excluded_columns],
+                            ntree = 1000,
+                            mtry = 3,
+                            importance = TRUE)
+finalForest2
+
+# Create Variable Importance plot of most important explanatory variables
+# in the random forest model
+varImpPlot(finalForest2, type = 1, main="Variable Importance Plot: Random Forest Model 2")
+# The top 5 are location_id, lag_sd_ims, lag_mean_rpm, lag_min_rpm, and lag_mean_hydraulic
+
+pi_hat = predict(finalForest2, test.df, type="prob")[,"1"]
+#pit_hat is now a vector of predicted probabilities (of 1, critical fault codes)
+
+rocCurve2 = roc(response = test.df$BinaryFault,
+               predictor = pi_hat,
+               levels=c("0","1"))
+plot(rocCurve2, print.thres = TRUE, print.auc=TRUE, 
+       main = "ROC Curve for Random Forest Model 2")
+
+# Specificity = .786
+# Sensitivity = .769
+# AUC = .813
+# This means the model will predict a critical fault code 76.9% of the time correctly when there is actually a critical issue and
+# that the model will predict non critical occurrences 78.6% of the time correctly when there is actually non critical occurrences.
+
+pi_star2 = coords(rocCurve2, "best", ret = "threshold")$threshold[1]
+test.df$forest_pred = as.factor(ifelse(pi_hat>pi_star2,1,0))
+
+
+### Better Variable importance plot for Random Forest Model 1 (AKA Final Model)
 #setting a variable to the variable importance plot
 imp = varImpPlot(finalForest, type = 1)
 # Creating data frame from Variable Importance plot to use in ggplot for a customization

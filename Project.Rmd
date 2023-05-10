@@ -95,6 +95,8 @@ library(rlist)
 DIFFLIB <- reticulate::import("difflib")
 POLYFUZZ <- reticulate::import("polyfuzz")
 
+# for data location. Needed depending on read in and write out at certain code chunks
+path_out = 'Data/'
 ```
 
 
@@ -434,7 +436,8 @@ wind <-wind %>% group_by(location_id, round_date) %>% summarise(mean_windspeed =
 
 ```
 
-```{r, joining}
+```{r joining, eval=FALSE}
+#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
 ####Joining datasets------
 # wind speed not joined as there isn't enough data
@@ -454,6 +457,11 @@ fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date')
 # but would have the previous date,ymd, in Date and the next day's,ymd, date in round_date. We will just fix that.
 fully_joined$Date = fully_joined$round_date
 fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
+
+# Output joined dataset
+# multiple output and read in are made to fit different criteria through the project.
+path_out = 'Data/'
+write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.names=FALSE)
 
 ```
 
@@ -547,6 +555,7 @@ fully_joined = fully_joined %>% mutate(BinaryFault = case_when(FaultCodeType == 
 
 # Output joined dataset with FaultCodeType and BinaryFault.
 # multiple output and read in are made to fit different criteria through the project.
+path_out = 'Data/'
 write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.names=FALSE)
 
 ```
@@ -555,7 +564,6 @@ write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.
 Lag variables, by 6 hours, are created for predictive modeling.
 
 ```{r, lag}
-
 fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TRUE)
 # after reading in, must convert time date again.
 fully_joined$round_date <- ymd_hms(fully_joined$round_date)
@@ -597,6 +605,7 @@ lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = la
 lagged = lagged %>% drop_na(lag_min_hydraulic)                                          
 
 # Output joined and lagged dataset with FaultCodeType and BinaryFault. This should be for graphs.
+
 write.csv(lagged,paste(path_out,'final_data-v10-joined-lagged.csv',sep = ''),row.names=FALSE)
 
 ```
@@ -717,7 +726,9 @@ scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
 
 ```
 
-```{python, scatterplotmatrix}
+```{python scatterplotmatrix, eval=FALSE}
+#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+
 # This was orginally created for data set prior to batch 2 and probably wont run now.
 # This is python code.
 

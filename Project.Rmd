@@ -815,7 +815,7 @@ g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_m
   theme_bw(base_size = 20)
 
 ####### Doesn't run graph-------
-# Goal was to graph IMS temperature (and other variables) in a time sereies with fault code events, but geom_vline wasn't working.
+# Goal was to graph IMS temperature (and other variables) in a time series with fault code events as vertical lines, but couldn't get geom_vline working.
 # Turbine 28 has the most critical fault codes
 graphs_imputed %>%
   group_by(location_id) %>%
@@ -873,7 +873,6 @@ keeps = data.frame(m = rep(NA, length(mtry)),
 excluded_columns = names(train.df[1:7])
 for (idx in 1:length(mtry)){
   print(paste0("fitting m = ", mtry[idx]))
-  
   tempForest  = randomForest(BinaryFault ~ .,
                              data = train.df[ !names(train.df) %in% excluded_columns], # excluding the names of the columns we are not using.
                              ntree = 1000,

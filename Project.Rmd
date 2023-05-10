@@ -14,47 +14,8 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Data Processing
 
-```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
-rm(list = ls())
-# libraries 
-library(tidyverse)
-library(lubridate)
-library(dplyr)
-library(ggcorrplot)
-library(gridExtra)
-library(tidyr)
-library(ggplot2)
-library(RColorBrewer)
-library(reticulate)
-library(fuzzywuzzyR)
-library(plotly)
-library(GGally)
-library(imputeTS)
-library(randomForest)
-library(TSstudio)
-library(randomForest) #to fit random forest
-library(pROC) # for ROC curves
-library(rlist)
-
-# In reticulate's python environment install (from the r terminal):
-# Note: The version of Python is 3.8.16
-#       Python can also be written natively in rmarkdown code chunks
-# numpy
-# polyfuzz
-# seaborn
-# pandas
-# matplotlib
-
-
-# python modules 
-DIFFLIB <- reticulate::import("difflib")
-POLYFUZZ <- reticulate::import("polyfuzz")
-
-
-```
-All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:\
+All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:
 
 **Work order**
 
@@ -96,6 +57,46 @@ All r code and rmarkdown will be in the root directory with and all sensory data
 The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
 then aggregated by the average in 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time of the averaged metric.
 
+##Libraries needed to run this project
+
+```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
+rm(list = ls())
+# libraries 
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggcorrplot)
+library(gridExtra)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+library(reticulate)
+library(fuzzywuzzyR)
+library(plotly)
+library(GGally)
+library(imputeTS)
+library(randomForest)
+library(TSstudio)
+library(randomForest) #to fit random forest
+library(pROC) # for ROC curves
+library(rlist)
+
+# In reticulate's python environment install (from the r terminal):
+# Note: The version of Python is 3.8.16
+#       Python can also be written natively in rmarkdown code chunks
+# numpy
+# polyfuzz
+# seaborn
+# pandas
+# matplotlib
+
+
+# python modules 
+DIFFLIB <- reticulate::import("difflib")
+POLYFUZZ <- reticulate::import("polyfuzz")
+
+```
+# Data Processing
 
 ```{r data_processing, eval=FALSE}
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^

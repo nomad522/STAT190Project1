@@ -719,9 +719,14 @@ plt.show() #use to show in r mark down. Don't use when knitting to html (comment
 
 ## Multivariate
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
-# uses the unimputed data set. This data set has both the ageragted data (by the mean, max, min, and standard deviation) for 1 
-# hour intervals and that data lagged by 6 hours
+#data set for unimputed dataset
 graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
+graphs$round_date <- ymd_hms(graphs$round_date)
+#data set for imputed dataset
+graphs_imputed <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
+graphs_imputed$round_date <- ymd_hms(graphs_imputed$round_date)
+
+
 
 # graphing the mean active power and mean rpm of one hour intervals, colored by whether they are critical, warnings or other fault codes
 g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
@@ -755,9 +760,43 @@ g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCode
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(), panel.background = element_blank())+
   geom_point()
 
-grid.arrange(g1,g2)
 
 
+
+graphs_imputed$order <- ifelse(graphs_imputed$BinaryFault=="0", "Critical Fault Absent", "Critical Fault Present")
+g3 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_sd_rpm, y = lag_sd_hydraulic, color = factor(BinaryFault))) +
+   geom_point(size = 3,alpha = 0.5) +
+   scale_colour_manual(values = c("black", "red")) +
+   labs(x="Standard Deviation of Generator RPM", y= "Standard Deviation of Hydraulic Pressure",
+       title="Standard Deviation of Generator RPM and Hydraulic Pressure by Critical Fault Occurrance") +
+   facet_wrap(~order, ncol=2) + geom_smooth(method=lm,se=FALSE) + theme_bw(base_size = 16)
+
+g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_min_hydraulic, color = factor(BinaryFault))) +
+  geom_point(size = 3,alpha = 0.7) +
+  scale_colour_manual(values = c("black", "red"),name = "Critical Fault",labels=c("Absent","Present")) +
+  labs(x="Minimum of Active Power", y= "Minimum of Hydraulic Pressure",
+       title="Minimum of Active Power and Hydraulic Pressure by Critical Fault Occurrance") +
+  theme_bw(base_size = 20)
+
+
+# Turbine 28 has the most critical fault codes
+graphs_imputed %>%
+        group_by(location_id) %>%
+        count(BinaryFault)
+# subset of data for 28
+subset_28 = subset(graphs, location_id == "Turbine 28")
+# object for x limits
+lims <- as.POSIXct(strptime(c("2022-07-15 00:00", "2022-09-01 00:00"), 
+                   format = "%Y-%m-%d %H:%M"))
+fault_date = subset_28[subset_28$BinaryFault == "1",c("Description","round_date")]
+g5 <- ggplot(NULL) +
+  geom_line(data = subset_28, aes(x=round_date, y=mean_ims)) + 
+  geom_segment(data = subset_28, aes(x = round_date, y = BinaryFault, xend = round_date, yend = 0), color = "red")+
+  geom_vline(data = fault_date,aes(xintercept = round_date, linetype=4))+
+  scale_x_datetime(limits = lims, expand = c(0, 0))
+
+
+grid.arrange(g1,g2,g3,g4)
 ```
 
 ```{r, random_forest}

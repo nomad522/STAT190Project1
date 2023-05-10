@@ -101,8 +101,7 @@ path_out = 'Data/'
 
 
 ## Data Processing
-
-#Reading in the data and cleaning
+<br>
 The data for the supplied sensor metrics are read in and the dates and time are converted to a usable date format. The data of the metrics are
 then aggregated by the average, min, max, standard deviation of the 60 minutes intervals. The data frames are then joined by the Turbine and with the date and time.
 ```{r data_processing, eval=FALSE}
@@ -466,9 +465,9 @@ write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.
 ```
 
 # Target Variable
-Creation of variables for prediction and graphing
-FaultCodeType
-BinaryFaul
+Creation of variables for prediction and graphing<br>
+FaultCodeType<br>
+BinaryFault<br>
 
 ```{r fault code Descriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
@@ -561,7 +560,7 @@ write.csv(fully_joined,paste(path_out,'final_data-v10-joined.csv',sep = ''),row.
 ```
 
 ## Lag varaibles
-Lag variables, by 6 hours, are created for predictive modeling.
+Lagged variables, by 6 hours, are created for predictive modeling by using the r package tidyr, version 1.3.0, with dplyr tools. 
 
 ```{r, lag}
 fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TRUE)
@@ -569,7 +568,7 @@ fully_joined <- read.csv("Data/final_data-v10-joined.csv", stringsAsFactors = TR
 fully_joined$round_date <- ymd_hms(fully_joined$round_date)
 fully_joined$Date <- ymd(fully_joined$Date)
 
-# Creating lag variables by 6 hours, using the dyplr lag function.
+# Creating lag variables by 6 hours, using the dplyr lag function.
 lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
                                                            lag_max_bearing = lag(max_bearing,n=6),
                                                            lag_min_bearing = lag(min_bearing,n=6),
@@ -609,7 +608,9 @@ lagged = lagged %>% drop_na(lag_min_hydraulic)
 write.csv(lagged,paste(path_out,'final_data-v10-joined-lagged.csv',sep = ''),row.names=FALSE)
 
 ```
-
+# Missing Data
+<br>
+Missing data is imputed using the r package, imputeTS version 3.3
 
 ```{r impute, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
@@ -648,8 +649,10 @@ for (i in 1:length(turbine_list)){
 write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''),row.names=FALSE)
 
 ```
-
-```{r fuzzy join work order, eval=FALSE}
+# Fuzzy work order
+<br>
+In order to join the work order data set with the sensory data, work order could be fuzzy joined to Fault code discriptions.
+```{r fuzzy work order, eval=FALSE}
 #### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
 
 # fuzzy join workorder and fully_joined
@@ -697,7 +700,7 @@ write.csv(fuzzy_workorder,paste(path_out,'fuzzy_workorder.csv',sep = ''),row.nam
 ```
 
 ## Matrix
-A variable maxtrix was created in hopes finding correlations.
+A variable matrix was created in hopes finding correlations.
 
 ```{r matrix, echo=TRUE,warning=FALSE,message=FALSE,error=FALSE,fig.keep='all'}
 
@@ -726,10 +729,14 @@ scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
 
 ```
 
-```{python scatterplotmatrix, eval=FALSE}
-#### ***Rmarkdown: Will not run when kniting unless you remove eval=FALSE ^
+# Scatter plot matrix
+<br> 
+At first it was seemingly impossible to plot a scatter plot matrix as the data set is too large for r studio to handle. It was possible to do so in python, but as batch 2 was introduced, this was abandoned to refit it. It may not work.
 
-# This was orginally created for data set prior to batch 2 and probably wont run now.
+```{python scatterplotmatrix, eval=FALSE}
+#### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
+
+# This was originally created for data set prior to batch 2 and probably wont run now.
 # This is python code.
 
 import seaborn as sns
@@ -739,7 +746,7 @@ import pandas as pd
 data = pd.read_csv('Data/final_data-v10-joined-lagged.csv')
 db2 = data.drop(columns =['BinaryFault']) # these are Categorical 
 
-# Seaborn scatterplot matrix
+# Seaborn scatter plot matrix
 sns.pairplot(db2)
 plt.show() #use to show in r mark down. Don't use when knitting to html (comment out)
 
@@ -751,10 +758,10 @@ plt.show() #use to show in r mark down. Don't use when knitting to html (comment
 Graphs of variable interactions.
 
 ```{r multivariate, figures-side, fig.show="hold", out.width="100%", fig.align="center", warning=FALSE}
-#data set for unimputed dataset
+#data set for unimputed data set
 graphs <- read.csv("Data/final_data-v10-joined-lagged.csv", stringsAsFactors = TRUE)
 graphs$round_date <- ymd_hms(graphs$round_date)
-#data set for imputed dataset
+#data set for imputed data set
 graphs_imputed <- read.csv("Data/final_data-v10-lagged-imputed.csv", stringsAsFactors = TRUE)
 graphs_imputed$round_date <- ymd_hms(graphs_imputed$round_date)
 
@@ -829,6 +836,19 @@ g5 <- ggplot(NULL) +
 # Graphing the graphs
 grid.arrange(g1,g2,g3,g4)
 ```
+# Random Forest
+<br>
+In order to predict critical fault codes, BinaryFault, a random forest was used with default settings of<br>
+b = 1000<br>
+m = 3<br>
+<br>
+
+The resulting roc curve gave us: <br>
+Specificity = .786<br>
+Sensitivity = .769<br>
+AUC = .813<br>
+This means the model will predict a critical fault code 76.9% of the time correctly when there is actually a critical issue and that the model will predict non critical occurrences 78.6% of the time correctly when there is actually non critical occurrences.
+
 
 ```{r, random_forest}
 # reading in the lagged and imputed data set

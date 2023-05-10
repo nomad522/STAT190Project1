@@ -39,11 +39,14 @@ library(pROC) # for ROC curves
 library(rlist)
 
 # In reticulate's python environment install (from the r terminal):
+# Note: The version of Python is 3.8.16
+#       Python can also be written natively in rmarkdown code chunks
 # numpy
 # polyfuzz
 # seaborn
 # pandas
 # matplotlib
+
 
 # python modules 
 DIFFLIB <- reticulate::import("difflib")

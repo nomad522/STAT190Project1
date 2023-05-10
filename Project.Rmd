@@ -81,6 +81,7 @@ library(randomForest) #to fit random forest
 library(pROC) # for ROC curves
 library(rlist)
 
+# Current version of RStudio : 2023.03.0 Build 386
 # In reticulate's python environment install (from the r terminal):
 # Note: The version of Python is 3.8.16
 #       Python can also be written natively in rmarkdown code chunks

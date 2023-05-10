@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:
+This code uses only batch 2 code. All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:
   
   **Work order**
   

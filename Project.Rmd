@@ -9,49 +9,49 @@ output:
 editor_options:
   chunk_output_type: inline
 ---
-
+  
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
 All r code and rmarkdown will be in the root directory with and all sensory data are to be in the directory Data/Wind Turbine Data Batch 2/ and extracted into their respective sub directories as stated:
-
-**Work order**
-
-+ Data/Wind Turbine Data Batch 2/Work Order
   
+  **Work order**
+  
+  + Data/Wind Turbine Data Batch 2/Work Order
+
 **Active Power**
-
-+ Data/Wind Turbine Data Batch 2/Active Power
   
+  + Data/Wind Turbine Data Batch 2/Active Power
+
 **Gearbox HS Bearing Temperature**
   
-+ Data/Wind Turbine Data Batch 2/Gearbox HS Bearing
-  
+  + Data/Wind Turbine Data Batch 2/Gearbox HS Bearing
+
 **Gearbox IMS Bearing 1**
   
-+ Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1
-  
+  + Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 1
+
 **Gearbox IMS Bearing 2**
   
-+ Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2
-  
+  + Data/Wind Turbine Data Batch 2/Gearbox IMS Bearing 2
+
 **Gearbox Oil**
-
-+ Gearbox Oil
   
+  + Gearbox Oil
+
 **Generator RPM**
-
-+ Data/Wind Turbine Data Batch 2/Gearbox RPM
   
+  + Data/Wind Turbine Data Batch 2/Gearbox RPM
+
 **Hydraulic Pressure**
-
-+ Data/Wind Turbine Data Batch 2/Hydraulic Pressure
   
-**Windspeed**
+  + Data/Wind Turbine Data Batch 2/Hydraulic Pressure
 
-+ Data/Wind Turbine Data Batch 2/Windspeed
+**Windspeed**
+  
+  + Data/Wind Turbine Data Batch 2/Windspeed
 
 This project can be ran top to bottom. 
 
@@ -135,11 +135,11 @@ wo$wo_finish_date = ymd_hms(wo$wo_finish_date)
 
 # This first converts the string "null" into a NA value. Then by grouping of OrderNo, fills in NA's with existing values of component_type, within a OrderNo if they exist. Then distinct() is ran to keep only unique rows. This allows us to keep unique work order numbers with component types when it is available. 
 workorder = wo %>% 
-    mutate(component_type = case_when(component_type == "null" ~ NA_character_,
-                               TRUE ~ component_type)) %>% 
-    group_by(OrderNo) %>% 
-    fill(component_type, .direction = 'up') %>% 
-    fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
+  mutate(component_type = case_when(component_type == "null" ~ NA_character_,
+                                    TRUE ~ component_type)) %>% 
+  group_by(OrderNo) %>% 
+  fill(component_type, .direction = 'up') %>% 
+  fill(component_type, .direction = 'down') %>% distinct(OrderNo, .keep_all = TRUE)
 # compared to this which just keeps distinct OrderNo regardless of other variables, causing us to lose most of the component_type 
 # test = distinct(wo, OrderNo, .keep_all = TRUE)
 
@@ -445,7 +445,7 @@ fully_joined <- full_join(hydraulic, bearing, by=c('location_id', 'round_date'))
   full_join(., ims2, c('location_id', 'round_date')) %>%
   full_join(., active, c('location_id', 'round_date'))%>%
   full_join(., ambient, by=c('location_id', 'round_date'))
-  
+
 # Because fault codes are condensed into the first occurrences, fault code events, it is left joined.
 fully_joined <- left_join(fully_joined, fault, by=c('location_id', 'round_date'))
 
@@ -461,7 +461,7 @@ fully_joined$Date = format(fully_joined$Date, "%Y-%m-%d")
 Creation of variables for prediction and graphing
 FaultCodeType
 BinaryFaul
- 
+
 ```{r fault code Descriptions, eval=FALSE}
 #### ***Rmarkdown: Will not run when knitting unless you remove eval=FALSE ^
 
@@ -473,77 +473,77 @@ unique(fully_joined$Description)
 # Creating categorical variable FaultCodeType.
 #grep() could/should had been used here.
 fully_joined = fully_joined %>%mutate(FaultCodeType =
-  case_when(
-  Description == "Gear Oil Temperature High"~"Critical",
-  Description == "Gear Oil Pressure Too High/Low"~"Critical",
-  Description == "Converter Tripped, Auto Start"~"Critical",
-  Description == "Mainbreaker Cut Out"~"Critical",
-  Description == "Gear Oil Pump/Blower Superheated"~"Critical",
-  Description == "Ups Bypass Error"~"Critical",
-  Description == "Ups-Failure"~"Critical"  ,
-  Description == "Slip Ring Error"~"Critical",
-  Description == "Osc. In Gen Speed, Cons. Lim"~"Critical",
-  Description == "Ims-Gen Gearbearing Temp Too High"~"Critical",
-  Description == "Ups-Failure"~"Critical",
-  Description == "Hs-Gen Gearbearing Superheated "~"Critical",
-  Description == "Grid Filter Current Overload"~"Critical",
-  Description == "Gearoil Level Too Low"~"Critical",
-  Description == "Rpm Sensor Error"~"Critical",
-  Description == "Srsg Activated"~"Critical",
-  Description == "Lms-Rot Gearbearing Temp Too High"~"Critical",
-  Description == "Gear Oil Temperature Warning"~"Warning",
-  Description == "Converter Trip, External"~"Warning",
-  Description == "Converter Tripped, General"~"Warning",
-  Description == "Main Bearing Temp Too High"~"Warning",
-  Description == "Generator High Speed Waiting"~"Warning",
-  Description == "Inv.(Tow) Cool Water Pres. Warning"~"Warning",
-  Description == "Inv.(Tow) Cool Water Pres. Low"~"Warning",
-  Description == "Tower Conv. Cooling Water Low"~"Warning",
-  Description == "Hydraulic Filter Warning"~"Warning",
-  Description == "Gear Oil Temp Sensor Warning"~"Warning",
-  Description == "Main Bearing Temp Warning"~"Warning",
-  Description == "Lmu Alarm Overspeed"~"Warning",
-  Description == "Brake Pressure Too Low"~"Warning",
-  Description == "Inverter Temperature High"~"Warning",
-  Description == "Grdinv: 38 D1 Volt High"~"Warning",
-  Description == "Grease Level Low, Gen Bearings"~"Warning",
-  Description == "Grdinv: 38 D1 Volt High"~"Warning",
-  Description == "Yaw Limit Sensor Activated"~"Warning",
-  Description == "No Lubrication, Gen Bearings"~"Warning",
-  Description == "Brake (Gen) Temperature Error"~"Warning",
-  Description == "Dc Voltage Low"~"Warning",
-  Description == "Grease Level Low, Hub"~"Warning",
-  Description == "Geninv: 38 D1 Volt High"~"Warning",
-  Description == "Gearoil Level Too Low"~"Warning",
-  Description == "Geninv: 56 D3 Volt High"~"Warning",
-  Description == "Inv. Cooling Water Temp Warning"~"Warning",
-  Description == "Delta Module Temperature High"~"Warning",
-  Description == "Gear Oil Temp Sensor Warning"~"Warning",
-  Description == "Gear Bearing Hs-Gen Sensor Warning"~"Warning",
-  Description == "Gear Bearing Hs-Rot Sensor Warning"~"Warning",
-  Description == "Gear Bearing Ims-Gen Sensor Warning"~"Warning",
-  Description == "Gear Bearing Ims-Rot Sensor Warning"~"Warning",
-  Description == "Hs-Rot Gearbearing Temp Warning"~"Warning",
-  Description == "Fuse Blown, Grid Filter"~"Warning",
-  Description == "Hs-Gen Gearbearing Temp Warning"~"Warning",
-  Description == "High Upper Voltage Exceeded"~"Warning",
-  Description == "Low Lower Voltage Exceeded"~"Warning",
-  Description == "UPS Battery Low, Warning"~"Warning",
-  Description == "Ups Battery Low"~"Warning",
-  Description == "Dc Fuse Blown"~"Warning",
-  Description == "Gear Oil Temperature Low"~"Warning",
-  Description == "Hydraulic Oil Too Cold"~"Warning",
-  Description == "Blown Yaw Brake Fuse"~"Warning",
-  Description == "Too Many Slip Ring Errors"~"Warning",
-  Description == "No Lubrication, Yaw System"~"Warning",
-  Description == "Lmu Sensor Error"~"Warning",
-  Description == "Srsg Activated"~"Warning",
-  .default ="Other"
-))
+                                        case_when(
+                                          Description == "Gear Oil Temperature High"~"Critical",
+                                          Description == "Gear Oil Pressure Too High/Low"~"Critical",
+                                          Description == "Converter Tripped, Auto Start"~"Critical",
+                                          Description == "Mainbreaker Cut Out"~"Critical",
+                                          Description == "Gear Oil Pump/Blower Superheated"~"Critical",
+                                          Description == "Ups Bypass Error"~"Critical",
+                                          Description == "Ups-Failure"~"Critical"  ,
+                                          Description == "Slip Ring Error"~"Critical",
+                                          Description == "Osc. In Gen Speed, Cons. Lim"~"Critical",
+                                          Description == "Ims-Gen Gearbearing Temp Too High"~"Critical",
+                                          Description == "Ups-Failure"~"Critical",
+                                          Description == "Hs-Gen Gearbearing Superheated "~"Critical",
+                                          Description == "Grid Filter Current Overload"~"Critical",
+                                          Description == "Gearoil Level Too Low"~"Critical",
+                                          Description == "Rpm Sensor Error"~"Critical",
+                                          Description == "Srsg Activated"~"Critical",
+                                          Description == "Lms-Rot Gearbearing Temp Too High"~"Critical",
+                                          Description == "Gear Oil Temperature Warning"~"Warning",
+                                          Description == "Converter Trip, External"~"Warning",
+                                          Description == "Converter Tripped, General"~"Warning",
+                                          Description == "Main Bearing Temp Too High"~"Warning",
+                                          Description == "Generator High Speed Waiting"~"Warning",
+                                          Description == "Inv.(Tow) Cool Water Pres. Warning"~"Warning",
+                                          Description == "Inv.(Tow) Cool Water Pres. Low"~"Warning",
+                                          Description == "Tower Conv. Cooling Water Low"~"Warning",
+                                          Description == "Hydraulic Filter Warning"~"Warning",
+                                          Description == "Gear Oil Temp Sensor Warning"~"Warning",
+                                          Description == "Main Bearing Temp Warning"~"Warning",
+                                          Description == "Lmu Alarm Overspeed"~"Warning",
+                                          Description == "Brake Pressure Too Low"~"Warning",
+                                          Description == "Inverter Temperature High"~"Warning",
+                                          Description == "Grdinv: 38 D1 Volt High"~"Warning",
+                                          Description == "Grease Level Low, Gen Bearings"~"Warning",
+                                          Description == "Grdinv: 38 D1 Volt High"~"Warning",
+                                          Description == "Yaw Limit Sensor Activated"~"Warning",
+                                          Description == "No Lubrication, Gen Bearings"~"Warning",
+                                          Description == "Brake (Gen) Temperature Error"~"Warning",
+                                          Description == "Dc Voltage Low"~"Warning",
+                                          Description == "Grease Level Low, Hub"~"Warning",
+                                          Description == "Geninv: 38 D1 Volt High"~"Warning",
+                                          Description == "Gearoil Level Too Low"~"Warning",
+                                          Description == "Geninv: 56 D3 Volt High"~"Warning",
+                                          Description == "Inv. Cooling Water Temp Warning"~"Warning",
+                                          Description == "Delta Module Temperature High"~"Warning",
+                                          Description == "Gear Oil Temp Sensor Warning"~"Warning",
+                                          Description == "Gear Bearing Hs-Gen Sensor Warning"~"Warning",
+                                          Description == "Gear Bearing Hs-Rot Sensor Warning"~"Warning",
+                                          Description == "Gear Bearing Ims-Gen Sensor Warning"~"Warning",
+                                          Description == "Gear Bearing Ims-Rot Sensor Warning"~"Warning",
+                                          Description == "Hs-Rot Gearbearing Temp Warning"~"Warning",
+                                          Description == "Fuse Blown, Grid Filter"~"Warning",
+                                          Description == "Hs-Gen Gearbearing Temp Warning"~"Warning",
+                                          Description == "High Upper Voltage Exceeded"~"Warning",
+                                          Description == "Low Lower Voltage Exceeded"~"Warning",
+                                          Description == "UPS Battery Low, Warning"~"Warning",
+                                          Description == "Ups Battery Low"~"Warning",
+                                          Description == "Dc Fuse Blown"~"Warning",
+                                          Description == "Gear Oil Temperature Low"~"Warning",
+                                          Description == "Hydraulic Oil Too Cold"~"Warning",
+                                          Description == "Blown Yaw Brake Fuse"~"Warning",
+                                          Description == "Too Many Slip Ring Errors"~"Warning",
+                                          Description == "No Lubrication, Yaw System"~"Warning",
+                                          Description == "Lmu Sensor Error"~"Warning",
+                                          Description == "Srsg Activated"~"Warning",
+                                          .default ="Other"
+                                        ))
 
 # creating a binary y variable, only for the fault codes that were determined by Daniel as being bad
 fully_joined = fully_joined %>% mutate(BinaryFault = case_when(FaultCodeType == "Critical" ~ 1,
-                                               .default = 0))
+                                                               .default = 0))
 
 # Output joined dataset with FaultCodeType and BinaryFault.
 # multiple output and read in are made to fit different criteria through the project.
@@ -563,37 +563,37 @@ fully_joined$Date <- ymd(fully_joined$Date)
 
 # Creating lag variables by 6 hours, using the dyplr lag function.
 lagged = fully_joined %>% group_by(location_id) %>% mutate(lag_mean_bearing = lag(mean_bearing,n=6),
-                                          lag_max_bearing = lag(max_bearing,n=6),
-                                          lag_min_bearing = lag(min_bearing,n=6),
-                                          lag_sd_bearing = lag(sd_bearing,n=6),
-                                          lag_mean_hydraulic = lag(mean_hydraulic,n=6),
-                                          lag_max_hydraulic = lag(max_hydraulic,n=6),
-                                          lag_min_hydraulic = lag(min_hydraulic,n=6),
-                                          lag_sd_hydraulic = lag(sd_hydraulic,n=6),
-                                          lag_mean_rpm = lag(mean_rpm,n=6),
-                                          lag_max_rpm = lag(max_rpm,n=6),
-                                          lag_min_rpm = lag(min_rpm,n=6),
-                                          lag_sd_rpm = lag(sd_rpm,n=6),
-                                          lag_mean_oil = lag(mean_oil,n=6),
-                                          lag_max_oil = lag(max_oil,n=6),
-                                          lag_min_oil = lag(min_oil,n=6),
-                                          lag_sd_oil = lag(sd_oil,n=6),
-                                          lag_mean_ims = lag(mean_ims,n=6),
-                                          lag_max_ims = lag(max_ims,n=6),
-                                          lag_min_ims = lag(min_ims,n=6),
-                                          lag_sd_ims = lag(sd_ims,n=6),
-                                          lag_mean_ims2 = lag(mean_ims2,n=6),
-                                          lag_max_ims2 = lag(max_ims2,n=6),
-                                          lag_min_ims2 = lag(min_ims2,n=6),
-                                          lag_sd_ims2 = lag(sd_ims2,n=6),
-                                          lag_mean_active = lag(mean_ims,n=6),
-                                          lag_max_active = lag(max_active,n=6),
-                                          lag_min_active = lag(min_active,n=6),
-                                          lag_sd_active = lag(sd_active,n=6),
-                                          lag_mean_ambient = lag(mean_ambient,n=6),
-                                          lag_max_ambient = lag(max_ambient,n=6),
-                                          lag_min_ambient = lag(min_ambient,n=6),
-                                          lag_sd_ambient = lag(sd_ambient,n=6))
+                                                           lag_max_bearing = lag(max_bearing,n=6),
+                                                           lag_min_bearing = lag(min_bearing,n=6),
+                                                           lag_sd_bearing = lag(sd_bearing,n=6),
+                                                           lag_mean_hydraulic = lag(mean_hydraulic,n=6),
+                                                           lag_max_hydraulic = lag(max_hydraulic,n=6),
+                                                           lag_min_hydraulic = lag(min_hydraulic,n=6),
+                                                           lag_sd_hydraulic = lag(sd_hydraulic,n=6),
+                                                           lag_mean_rpm = lag(mean_rpm,n=6),
+                                                           lag_max_rpm = lag(max_rpm,n=6),
+                                                           lag_min_rpm = lag(min_rpm,n=6),
+                                                           lag_sd_rpm = lag(sd_rpm,n=6),
+                                                           lag_mean_oil = lag(mean_oil,n=6),
+                                                           lag_max_oil = lag(max_oil,n=6),
+                                                           lag_min_oil = lag(min_oil,n=6),
+                                                           lag_sd_oil = lag(sd_oil,n=6),
+                                                           lag_mean_ims = lag(mean_ims,n=6),
+                                                           lag_max_ims = lag(max_ims,n=6),
+                                                           lag_min_ims = lag(min_ims,n=6),
+                                                           lag_sd_ims = lag(sd_ims,n=6),
+                                                           lag_mean_ims2 = lag(mean_ims2,n=6),
+                                                           lag_max_ims2 = lag(max_ims2,n=6),
+                                                           lag_min_ims2 = lag(min_ims2,n=6),
+                                                           lag_sd_ims2 = lag(sd_ims2,n=6),
+                                                           lag_mean_active = lag(mean_ims,n=6),
+                                                           lag_max_active = lag(max_active,n=6),
+                                                           lag_min_active = lag(min_active,n=6),
+                                                           lag_sd_active = lag(sd_active,n=6),
+                                                           lag_mean_ambient = lag(mean_ambient,n=6),
+                                                           lag_max_ambient = lag(max_ambient,n=6),
+                                                           lag_min_ambient = lag(min_ambient,n=6),
+                                                           lag_sd_ambient = lag(sd_ambient,n=6))
 lagged = lagged %>% drop_na(lag_min_hydraulic)                                          
 
 # Output joined and lagged dataset with FaultCodeType and BinaryFault. This should be for graphs.
@@ -621,18 +621,18 @@ column_list = colnames(ts_imputed)[c(9:40)]
 
 # iterate through turbines then through each imputing column
 for (i in 1:length(turbine_list)){
- print(paste0("imputing turbine: ", i))
- #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
- x = subset(lagged, location_id == turbine_list[i])
- for (j in column_list){
-  print(paste0("imputing column: ", j))
-  # use this time series imputing algorithm to fill in missing values
-  imp = na_kalman(x[,j])
-  # put data back into bhedata and we have a new dataframe that is all imputed!!!
-  ts_imputed[ts_imputed$location_id == turbine_list[i],j] <- imp
-
- }
-
+  print(paste0("imputing turbine: ", i))
+  #subset because there are SO many missing values, so by doing it by turbine, you make it more accurate
+  x = subset(lagged, location_id == turbine_list[i])
+  for (j in column_list){
+    print(paste0("imputing column: ", j))
+    # use this time series imputing algorithm to fill in missing values
+    imp = na_kalman(x[,j])
+    # put data back into bhedata and we have a new dataframe that is all imputed!!!
+    ts_imputed[ts_imputed$location_id == turbine_list[i],j] <- imp
+    
+  }
+  
 }
 
 # Output of the lagged imputed dataset. 
@@ -647,7 +647,7 @@ write.csv(ts_imputed,paste(path_out,'final_data-v10-lagged-imputed.csv',sep = ''
 
 unique(workorder$location_id)
 workorder %>% ungroup()%>% summarise(min = min(wo_start_date),
-                        max = max(wo_start_date),)
+                                     max = max(wo_start_date),)
 # because we can see that we only have work orders from 2020-08-01 to 2022-08-31, we will create temporary subset for our sensory dataset to the newest, most recent of work order date so we maybe fuzzy match more closely for work orders to sensory data we have at that actual time or before it. New sensory data surely could not be predictive of prior work orders right?
 joined_subset <- fully_joined[fully_joined$Date < "2022-09-01",]
 
@@ -664,8 +664,8 @@ get_best_matches <- function(from_vec2,to_vec) {
   get_best_matches <- function(from_string, to_vec){
     return(DIFFLIB$get_close_matches(from_string,to_vec, 1L, cutoff = 0))
   }
-    unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
-  }
+  unlist(lapply(from_vec2, function(from_vec2) get_best_matches(from_vec2, to_vec)))
+}
 difflib_matches <- get_best_matches(from_vec2, to_vec)
 
 get_score <- function(string1, string2) {
@@ -749,10 +749,10 @@ graphs_imputed$round_date <- ymd_hms(graphs_imputed$round_date)
 
 # graphing the mean active power and mean rpm of one hour intervals, colored by whether they are critical, warnings or other fault codes
 g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
-       aes(x=mean_rpm ,
-           y=mean_active,
-           color = FaultCodeType,
-           alpha = FaultCodeType))+
+            aes(x=mean_rpm ,
+                y=mean_active,
+                color = FaultCodeType,
+                alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Generator RPM")+
   ylab("Active Power")+
@@ -765,10 +765,10 @@ g1 = ggplot(graphs %>%arrange(desc(FaultCodeType)),
 
 # graphing the mean active power and mean rpm of one hour intervals, colored by just they are critical and what may be warnings of critical fault codes
 g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCodeType)),
-       aes(x=mean_rpm,
-           y=mean_active,
-           color = FaultCodeType,
-           alpha = FaultCodeType))+
+            aes(x=mean_rpm,
+                y=mean_active,
+                color = FaultCodeType,
+                alpha = FaultCodeType))+
   ggtitle("Active Power Vs Generator RPM")+
   xlab("Genorator RPM")+
   ylab("Active Power")+
@@ -783,12 +783,12 @@ g2 = ggplot(graphs %>% filter(FaultCodeType != "Other")%>%arrange(desc(FaultCode
 graphs_imputed$order <- ifelse(graphs_imputed$BinaryFault=="0", "Critical Fault Absent", "Critical Fault Present")
 #Graphing lagged standard deviation of rpm and hydrolic pressure
 g3 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_sd_rpm, y = lag_sd_hydraulic, color = factor(BinaryFault))) +
-   geom_point(size = 3,alpha = 0.5) +
-   scale_colour_manual(values = c("black", "red")) +
-   labs(x="Standard Deviation of Generator RPM", y= "Standard Deviation of Hydraulic Pressure",
+  geom_point(size = 3,alpha = 0.5) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(x="Standard Deviation of Generator RPM", y= "Standard Deviation of Hydraulic Pressure",
        title="Standard Deviation of Generator RPM and Hydraulic Pressure by Critical Fault Occurrance") +
-   facet_wrap(~order, ncol=2) + geom_smooth(method=lm,se=FALSE) + theme_bw(base_size = 16)
-   
+  facet_wrap(~order, ncol=2) + geom_smooth(method=lm,se=FALSE) + theme_bw(base_size = 16)
+
 #Graphing lagged minimum active power and hydrolic pressure
 g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_min_hydraulic, color = factor(BinaryFault))) +
   geom_point(size = 3,alpha = 0.7) +
@@ -801,13 +801,13 @@ g4 = ggplot(graphs_imputed %>% arrange(order), aes(x = lag_min_active, y = lag_m
 # Goal was to graph IMS temperature (and other variables) in a time sereies with fault code events, but geom_vline wasn't working.
 # Turbine 28 has the most critical fault codes
 graphs_imputed %>%
-        group_by(location_id) %>%
-        count(BinaryFault)
+  group_by(location_id) %>%
+  count(BinaryFault)
 # subset of data for 28
 subset_28 = subset(graphs, location_id == "Turbine 28")
 # object for x limits
 lims <- as.POSIXct(strptime(c("2022-07-15 00:00", "2022-09-01 00:00"), 
-                   format = "%Y-%m-%d %H:%M"))
+                            format = "%Y-%m-%d %H:%M"))
 fault_date = subset_28[subset_28$BinaryFault == "1",c("Description","round_date")]
 g5 <- ggplot(NULL) +
   geom_line(data = subset_28, aes(x=round_date, y=mean_ims)) + 
@@ -930,10 +930,10 @@ ggplot(data = keeps[1:10, ])+
 
 # The smallest oob error is with 1 variable... 
 finalForest2 <- randomForest(BinaryFault ~ .,
-                            data = train.df[ !names(train.df) %in% excluded_columns],
-                            ntree = 1000,
-                            mtry = 3,
-                            importance = TRUE)
+                             data = train.df[ !names(train.df) %in% excluded_columns],
+                             ntree = 1000,
+                             mtry = 3,
+                             importance = TRUE)
 finalForest2
 
 # Create Variable Importance plot of most important explanatory variables
@@ -945,10 +945,10 @@ pi_hat = predict(finalForest2, test.df, type="prob")[,"1"]
 #pit_hat is now a vector of predicted probabilities (of 1, critical fault codes)
 
 rocCurve2 = roc(response = test.df$BinaryFault,
-               predictor = pi_hat,
-               levels=c("0","1"))
+                predictor = pi_hat,
+                levels=c("0","1"))
 plot(rocCurve2, print.thres = TRUE, print.auc=TRUE, 
-       main = "ROC Curve for Random Forest Model 2")
+     main = "ROC Curve for Random Forest Model 2")
 
 # Specificity = .786
 # Sensitivity = .769

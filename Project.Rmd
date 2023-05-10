@@ -717,12 +717,12 @@ round(r,2)
 ggcorrplot(r) + labs(title = "Correlation matrix")      
 
 
-scatter_matrix = ggpairs(numeric, tittle="Scatterplot matrix")
+scatter_matrix = ggpairs(numeric, title="Scatterplot matrix")
 # shouldn't run as it will freeze, instead used python with seaborn for a scatterplot matrix in the next code cluster
 # ggplotly(scatter_matrix)
 
 #Notes:
-# orginally made only for the unlagged and unimputed data sets.
+# originally made only for the unlagged and unimputed data sets.
 # We can see that the Gearbox oil temp and IMS temperature are directly related with correlation of .94.
 # We can see that Active Power is also directly related to the Generator RPM at .94. Which seems right.
 

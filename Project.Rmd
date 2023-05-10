@@ -53,32 +53,31 @@ All r code and rmarkdown will be in the root directory with and all sensory data
   
   + Data/Wind Turbine Data Batch 2/Windspeed
 
-This project can be ran top to bottom. 
+<br>
 
-
-##Libraries needed to run this project
+This project can be ran top to bottom. <br>
+# Libraries needed to run this project:
 
 ```{r Libraries, warning=FALSE,message=FALSE,error=FALSE, results='hide'}
 rm(list = ls())
 # libraries 
-library(tidyverse)
-library(lubridate)
-library(dplyr)
-library(ggcorrplot)
-library(gridExtra)
-library(tidyr)
-library(ggplot2)
-library(RColorBrewer)
-library(reticulate)
-library(fuzzywuzzyR)
-library(plotly)
-library(GGally)
-library(imputeTS)
-library(randomForest)
-library(TSstudio)
-library(randomForest) #to fit random forest
-library(pROC) # for ROC curves
-library(rlist)
+library(tidyverse) # version 2.0.0
+library(lubridate) # version 1.9.2
+library(dplyr) # version 1.10
+library(ggcorrplot) # version 0.1.4
+library(gridExtra) # version 2.3
+library(tidyr) # version 1.3.0
+library(ggplot2) # version 3.4.1
+library(RColorBrewer) # version 1.1-3
+library(reticulate)  # version 1.28
+library(fuzzywuzzyR) # 1.0.5
+library(plotly)  # version 4.10.1
+library(GGally)  # version 2.1.2
+library(imputeTS)  # version 3.3
+library(randomForest)  # version 4.6-1.1
+library(TSstudio)  # version 0.1.6
+library(pROC)  # version 1.18.0
+library(rlist) # version 0.4.6.2
 
 # Current version of RStudio : 2023.03.0 Build 386
 # In reticulate's python environment install (from the r terminal):
